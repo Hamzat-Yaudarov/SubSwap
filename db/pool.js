@@ -9,7 +9,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { Pool } = pg;
 
 // Get database URL from environment
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/wormz';
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+  console.error('❌ Ошибка: DATABASE_URL не установлена в переменных окружения');
+  console.error('📝 Пожалуйста, установите DATABASE_URL перед запуском');
+  process.exit(1);
+}
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
