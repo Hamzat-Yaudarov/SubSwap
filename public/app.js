@@ -1,844 +1,611 @@
-// Проверка загрузки React
-if (typeof React === 'undefined' || typeof ReactDOM === 'undefined') {
-  document.body.innerHTML = '<div style="padding: 20px; font-family: sans-serif;"><h1>❌ Ошибка загрузки</h1><p>React библиотеки не загружены. Обновите страницу.</p></div>';
-  throw new Error('React не загружен');
-}
+// Telegram WebApp API
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
 
-const { useState, useEffect, useRef } = React;
-const rootElement = document.getElementById('app');
-
-if (!rootElement) {
-  throw new Error('Element with id="app" not found');
-}
-
-const root = ReactDOM.createRoot(rootElement);
-
-// Global error handler
-window.addEventListener('error', (event) => {
-  console.error('Global error:', event.error);
-});
-
-window.addEventListener('unhandledrejection', (event) => {
-  console.error('Unhandled promise rejection:', event.reason);
-});
-
-// API helper
-const api = {
-  baseURL: '/api',
-  
-  async request(method, endpoint, data = null) {
-    const headers = {
-      'Content-Type': 'application/json',
-      'X-Init-Data': window.Telegram?.WebApp?.initData || ''
-    };
-
-    const options = {
-      method,
-      headers
-    };
-
-    if (data) options.body = JSON.stringify(data);
-
-    const response = await fetch(`${this.baseURL}${endpoint}`, options);
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Request failed');
-    }
-    return response.json();
-  },
-
-  async post(endpoint, data) {
-    return this.request('POST', endpoint, data);
-  },
-
-  async get(endpoint) {
-    return this.request('GET', endpoint);
-  },
-
-  async patch(endpoint, data) {
-    return this.request('PATCH', endpoint, data);
-  },
-
-  async delete(endpoint) {
-    return this.request('DELETE', endpoint);
-  }
+// Глобальное состояние
+const app = {
+    userId: null,
+    user: null,
+    channels: [],
+    currentMutualType: 'subscribe',
+    currentChatType: 'channel',
+    currentTask: null,
+    apiUrl: window.location.origin + '/api'
 };
 
-// Components
-function Home({ user, onNavigate }) {
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
+// Инициализация
+document.addEventListener('DOMContentLoaded', async () => {
+    await app.init();
+    app.setupNavigation();
+    app.setupTabs();
+});
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
-  const loadProfile = async () => {
+// Инициализация приложения
+app.init = async () => {
     try {
-      const data = await api.get('/profile');
-      setProfile(data.user);
-    } catch (err) {
-      console.error('Failed to load profile:', err);
-    } finally {
-      setLoading(false);
+        // Получаем initData от Telegram
+        const initData = tg.initData;
+        
+        // Авторизация
+        const response = await fetch(`${app.apiUrl}/auth`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': initData
+            },
+            body: JSON.stringify({
+                initData: initData
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Auth failed');
+        }
+
+        const data = await response.json();
+        app.userId = data.user.id;
+        app.user = data.user;
+
+        // Загружаем данные
+        await app.loadProfile();
+        await app.loadChannels();
+        await app.loadMutuals();
+        await app.loadChatPosts();
+    } catch (error) {
+        console.error('Init error:', error);
+        tg.showAlert('Ошибка инициализации. Попробуйте перезапустить приложение.');
     }
-  };
+};
 
-  return (
-    <div className="app-content">
-      <h1 style={{ marginBottom: '16px', fontSize: '24px', fontWeight: '700' }}>Главная</h1>
+// Навигация
+app.setupNavigation = () => {
+    const navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const page = item.dataset.page;
+            app.showPage(page);
+        });
+    });
+};
 
-      {loading ? (
-        <div className="flex justify-center items-center" style={{ minHeight: '200px' }}>
-          <div className="spinner"></div>
-        </div>
-      ) : profile ? (
-        <>
-          {/* Stats card */}
-          <div className="card">
-            <h2 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px' }}>Ваш прогресс</h2>
-            <div className="stats-grid">
-              <div className="stat-item">
-                <div className="stat-label">Получено подписчиков</div>
-                <div className="stat-value">{profile.channels_count || 0}</div>
-              </div>
-              <div className="stat-item">
-                <div className="stat-label">Активных взаимок</div>
-                <div className="stat-value">{profile.active_mutuals || 0}</div>
-              </div>
-              <div className="stat-item">
-                <div className="stat-label">Рейтинг</div>
-                <div className="stat-value">⭐ {profile.rating}</div>
-              </div>
-              <div className="stat-item">
-                <div className="stat-label">Выполнено</div>
-                <div className="stat-value">{profile.completed_mutuals || 0}</div>
-              </div>
-            </div>
-          </div>
+app.showPage = (pageName) => {
+    // Скрываем все страницы
+    document.querySelectorAll('.page').forEach(page => {
+        page.classList.remove('active');
+    });
 
-          {/* Action buttons */}
-          <div className="card">
-            <button 
-              className="button button-primary mb-12"
-              onClick={() => onNavigate('mutuals')}
-            >
-              🔍 Найти взаимку
-            </button>
-            <button 
-              className="button button-secondary"
-              onClick={() => onNavigate('channels')}
-            >
-              ➕ Добавить канал
-            </button>
-          </div>
+    // Показываем выбранную страницу
+    const page = document.getElementById(`page-${pageName}`);
+    if (page) {
+        page.classList.add('active');
+    }
 
-          {/* How it works */}
-          <div className="card">
-            <h2 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px' }}>Как это работает</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ fontSize: '24px' }}>1️⃣</div>
-                <div>
-                  <div style={{ fontWeight: '600', marginBottom: '4px' }}>Добавь канал</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Добавьте свой канал или чат в систему</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ fontSize: '24px' }}>2️⃣</div>
-                <div>
-                  <div style={{ fontWeight: '600', marginBottom: '4px' }}>Найди взаимку</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Выбери подходящую взаимку и выполни задание</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ fontSize: '24px' }}>3️⃣</div>
-                <div>
-                  <div style={{ fontWeight: '600', marginBottom: '4px' }}>Получай рост</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Участвуй во взаимках и расти безопасно</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : null}
-    </div>
-  );
-}
+    // Обновляем активную кнопку навигации
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+        if (item.dataset.page === pageName) {
+            item.classList.add('active');
+        }
+    });
 
-function Channels({ onNavigate }) {
-  const [channels, setChannels] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [formData, setFormData] = useState({ link: '', type: 'channel' });
-  const [formError, setFormError] = useState('');
-  const [formLoading, setFormLoading] = useState(false);
+    // Загружаем данные для страницы
+    if (pageName === 'mutuals') {
+        app.loadMutuals();
+    } else if (pageName === 'chat') {
+        app.loadChatPosts();
+    } else if (pageName === 'channels') {
+        app.loadChannels();
+    } else if (pageName === 'profile') {
+        app.loadProfile();
+    } else if (pageName === 'home') {
+        app.loadHomeStats();
+    }
+};
 
-  useEffect(() => {
-    loadChannels();
-  }, []);
+// Табы
+app.setupTabs = () => {
+    // Табы на странице взаимок
+    const mutualTabs = document.querySelectorAll('#page-mutuals .tab');
+    mutualTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            mutualTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            app.currentMutualType = tab.dataset.type;
+            app.loadMutuals();
+        });
+    });
 
-  const loadChannels = async () => {
+    // Табы на странице чата
+    const chatTabs = document.querySelectorAll('#page-chat .tab');
+    chatTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            chatTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            app.currentChatType = tab.dataset.type;
+            app.loadChatPosts();
+        });
+    });
+};
+
+// Загрузка профиля
+app.loadProfile = async () => {
     try {
-      const data = await api.get('/channels');
-      setChannels(data.channels || []);
-    } catch (err) {
-      console.error('Failed to load channels:', err);
-    } finally {
-      setLoading(false);
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/profile?userId=${app.userId}`, {
+            headers: {
+                'X-Telegram-Init-Data': initData
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('profile-id').textContent = data.user.id;
+            document.getElementById('profile-rating').textContent = data.user.rating;
+            document.getElementById('profile-completed').textContent = data.stats.completed_mutuals;
+            document.getElementById('profile-active').textContent = data.stats.active_mutuals;
+        }
+    } catch (error) {
+        console.error('Load profile error:', error);
     }
-  };
+};
 
-  const handleAddChannel = async (e) => {
-    e.preventDefault();
-    setFormError('');
-    setFormLoading(true);
-
+// Загрузка статистики на главной
+app.loadHomeStats = async () => {
     try {
-      const data = await api.post('/channels/add', formData);
-      setChannels([...channels, data.channel]);
-      setFormData({ link: '', type: 'channel' });
-      setShowAddForm(false);
-    } catch (err) {
-      setFormError(err.message);
-    } finally {
-      setFormLoading(false);
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/profile?userId=${app.userId}`, {
+            headers: {
+                'X-Telegram-Init-Data': initData
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('stat-rating').textContent = data.user.rating;
+            document.getElementById('stat-active').textContent = data.stats.active_mutuals;
+            // Получено подписчиков - упрощённая версия
+            document.getElementById('stat-subscribers').textContent = data.stats.completed_mutuals * 10;
+        }
+    } catch (error) {
+        console.error('Load home stats error:', error);
     }
-  };
+};
 
-  return (
-    <div className="app-content">
-      <h1 style={{ marginBottom: '16px', fontSize: '24px', fontWeight: '700' }}>Мои каналы</h1>
-
-      {loading ? (
-        <div className="flex justify-center items-center" style={{ minHeight: '200px' }}>
-          <div className="spinner"></div>
-        </div>
-      ) : channels.length === 0 && !showAddForm ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">📺</div>
-          <div className="empty-state-title">Нет каналов</div>
-          <div className="empty-state-text">Добавьте свой первый канал или чат</div>
-          <button 
-            className="button button-primary"
-            onClick={() => setShowAddForm(true)}
-          >
-            ➕ Добавить канал
-          </button>
-        </div>
-      ) : (
-        <>
-          {channels.map(channel => (
-            <div key={channel.id} className="channel-card">
-              <div className="channel-avatar">
-                {channel.type === 'channel' ? '📢' : '💬'}
-              </div>
-              <div className="channel-info">
-                <div className="channel-title">{channel.title}</div>
-                <div className="channel-meta">
-                  <span>{channel.type === 'channel' ? 'Канал' : 'Чат'}</span>
-                  <span>👥 {channel.members_count}</span>
-                  <span className="channel-rating">⭐ {channel.rating}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {!showAddForm && (
-            <button 
-              className="button button-secondary"
-              onClick={() => setShowAddForm(true)}
-              style={{ marginTop: '12px' }}
-            >
-              ➕ Добавить канал
-            </button>
-          )}
-        </>
-      )}
-
-      {showAddForm && (
-        <div className="card" style={{ marginTop: '12px', border: '2px solid var(--primary)' }}>
-          <h2 style={{ marginBottom: '12px', fontWeight: '600' }}>Добавить канал</h2>
-          <form onSubmit={handleAddChannel}>
-            <div className="form-group">
-              <label className="form-label">Ссылка на канал</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="https://t.me/..."
-                value={formData.link}
-                onChange={(e) => setFormData({ ...formData, link: e.target.value })}
-                disabled={formLoading}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Тип</label>
-              <select
-                className="form-select"
-                value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                disabled={formLoading}
-              >
-                <option value="channel">Канал</option>
-                <option value="chat">Чат</option>
-              </select>
-            </div>
-
-            {formError && <div className="form-error">{formError}</div>}
-
-            <button 
-              type="submit"
-              className="button button-primary mb-12"
-              disabled={formLoading}
-            >
-              {formLoading ? (
-                <>
-                  <div className="spinner"></div>
-                  Проверка...
-                </>
-              ) : (
-                '✓ Проверить и добавить'
-              )}
-            </button>
-
-            <button
-              type="button"
-              className="button button-secondary"
-              onClick={() => {
-                setShowAddForm(false);
-                setFormError('');
-              }}
-              disabled={formLoading}
-            >
-              Отмена
-            </button>
-          </form>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Mutuals({ onNavigate }) {
-  const [tab, setTab] = useState('subscribe');
-  const [mutuals, setMutuals] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    loadMutuals();
-  }, [tab]);
-
-  const loadMutuals = async () => {
-    setLoading(true);
-    try {
-      const data = await api.get(`/mutuals/available?mutual_type=${tab}`);
-      setMutuals(data.mutuals || []);
-    } catch (err) {
-      console.error('Failed to load mutuals:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleJoin = async (mutualId) => {
-    try {
-      await api.post(`/mutuals/${mutualId}/join`, {});
-      setMutuals(mutuals.filter(m => m.id !== mutualId));
-    } catch (err) {
-      alert(err.message);
-    }
-  };
-
-  return (
-    <div className="app-content">
-      <h1 style={{ marginBottom: '12px', fontSize: '24px', fontWeight: '700' }}>Взаимки</h1>
-
-      <div className="tabs">
-        <div 
-          className={`tab ${tab === 'subscribe' ? 'active' : ''}`}
-          onClick={() => setTab('subscribe')}
-        >
-          Подписки
-        </div>
-        <div 
-          className={`tab ${tab === 'reaction' ? 'active' : ''}`}
-          onClick={() => setTab('reaction')}
-        >
-          Реакции
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center items-center" style={{ minHeight: '200px' }}>
-          <div className="spinner"></div>
-        </div>
-      ) : mutuals.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">🔍</div>
-          <div className="empty-state-title">Взаимок не найдено</div>
-          <div className="empty-state-text">Попробуйте позже или выберите другой тип</div>
-        </div>
-      ) : (
-        <>
-          {mutuals.map(mutual => (
-            <div key={mutual.id} className="mutual-card">
-              <div className="mutual-header">
-                <div className="mutual-title">{mutual.title}</div>
-                <div className="mutual-type">
-                  {mutual.mutual_type === 'subscribe' ? '📢 Подписка' : '😊 Реакция'}
-                </div>
-              </div>
-              <div className="mutual-details">
-                <div className="mutual-detail-item">
-                  👥 <strong>{mutual.members_count}</strong>
-                </div>
-                <div className="mutual-detail-item">
-                  ✓ <strong>{mutual.required_count}</strong>
-                </div>
-                <div className="mutual-detail-item">
-                  ⏱️ <strong>{mutual.hold_hours}ч</strong>
-                </div>
-                <div className="mutual-detail-item">
-                  ⭐ <strong>{mutual.creator_rating}</strong>
-                </div>
-              </div>
-              <button
-                className="button button-primary button-small"
-                onClick={() => handleJoin(mutual.id)}
-              >
-                💪 Участвовать
-              </button>
-            </div>
-          ))}
-        </>
-      )}
-    </div>
-  );
-}
-
-function Chat() {
-  const [tab, setTab] = useState('channel');
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [channels, setChannels] = useState([]);
-  const [formData, setFormData] = useState({ channel_id: '', post_type: 'channel', conditions: '' });
-  const [formError, setFormError] = useState('');
-  const [formLoading, setFormLoading] = useState(false);
-
-  useEffect(() => {
-    loadPosts();
-    loadChannels();
-  }, [tab]);
-
-  const loadPosts = async () => {
-    setLoading(true);
-    try {
-      const postTypeMap = { channel: 'channel', chat: 'chat', reaction: 'reaction' };
-      const data = await api.get(`/chat/posts?post_type=${postTypeMap[tab]}`);
-      setPosts(data.posts || []);
-    } catch (err) {
-      console.error('Failed to load posts:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadChannels = async () => {
-    try {
-      const data = await api.get('/channels');
-      setChannels(data.channels || []);
-      if (data.channels && data.channels.length > 0) {
-        setFormData(prev => ({ ...prev, channel_id: data.channels[0].id }));
-      }
-    } catch (err) {
-      console.error('Failed to load channels:', err);
-    }
-  };
-
-  const handleCreatePost = async (e) => {
-    e.preventDefault();
-    setFormError('');
-    setFormLoading(true);
+// Загрузка каналов
+app.loadChannels = async () => {
+    const list = document.getElementById('channels-list');
+    list.innerHTML = '<div class="loading">Загрузка...</div>';
 
     try {
-      if (!formData.channel_id) {
-        throw new Error('Выберите канал');
-      }
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/channels?userId=${app.userId}`, {
+            headers: {
+                'X-Telegram-Init-Data': initData
+            }
+        });
 
-      const data = await api.post('/chat/post', {
-        channel_id: parseInt(formData.channel_id),
-        post_type: formData.post_type,
-        conditions: formData.conditions
-      });
+        if (response.ok) {
+            const data = await response.json();
+            app.channels = data.channels;
 
-      setShowCreateForm(false);
-      setFormData({ channel_id: channels[0]?.id || '', post_type: 'channel', conditions: '' });
-      loadPosts();
-    } catch (err) {
-      setFormError(err.message);
-    } finally {
-      setFormLoading(false);
+            if (data.channels.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📢</div>
+                        <div class="empty-state-text">Вы ещё не добавили ни одного канала</div>
+                    </div>
+                `;
+            } else {
+                list.innerHTML = data.channels.map(channel => `
+                    <div class="channel-card">
+                        <div class="channel-header">
+                            <div class="channel-avatar">${channel.type === 'channel' ? '📢' : '💬'}</div>
+                            <div class="channel-info">
+                                <div class="channel-name">${channel.title}</div>
+                                <div class="channel-meta">
+                                    ${channel.type === 'channel' ? 'Канал' : 'Чат'} • 
+                                    ${channel.members_count} подписчиков • 
+                                    Рейтинг: ${channel.rating}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (error) {
+        console.error('Load channels error:', error);
+        list.innerHTML = '<div class="error-message active">Ошибка загрузки каналов</div>';
     }
-  };
+};
 
-  const handleRespond = async (postId) => {
+// Показать модалку добавления канала
+app.showAddChannel = () => {
+    document.getElementById('modal-overlay').classList.add('active');
+    document.getElementById('modal-add-channel').classList.add('active');
+    document.getElementById('channel-link').value = '';
+    document.getElementById('channel-error').classList.remove('active');
+};
+
+// Добавить канал
+app.addChannel = async () => {
+    const link = document.getElementById('channel-link').value.trim();
+    const type = document.querySelector('input[name="channel-type"]:checked').value;
+    const errorDiv = document.getElementById('channel-error');
+
+    if (!link) {
+        errorDiv.textContent = 'Введите ссылку на канал';
+        errorDiv.classList.add('active');
+        return;
+    }
+
+    errorDiv.classList.remove('active');
+
     try {
-      await api.post(`/chat/${postId}/respond`, {});
-      setPosts(posts.filter(p => p.id !== postId));
-    } catch (err) {
-      alert(err.message);
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/channels/add`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': initData
+            },
+            body: JSON.stringify({
+                link: link,
+                type: type,
+                userId: app.userId
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            tg.showAlert('Канал успешно добавлен!');
+            app.closeModal();
+            app.loadChannels();
+        } else {
+            errorDiv.textContent = data.error || 'Ошибка при добавлении канала';
+            errorDiv.classList.add('active');
+        }
+    } catch (error) {
+        console.error('Add channel error:', error);
+        errorDiv.textContent = 'Ошибка при добавлении канала';
+        errorDiv.classList.add('active');
     }
-  };
+};
 
-  return (
-    <div className="app-content">
-      <h1 style={{ marginBottom: '12px', fontSize: '24px', fontWeight: '700' }}>Чат взаимок</h1>
+// Загрузка взаимок
+app.loadMutuals = async () => {
+    const list = document.getElementById('mutuals-list');
+    list.innerHTML = '<div class="loading">Загрузка...</div>';
 
-      <div className="tabs">
-        <div 
-          className={`tab ${tab === 'channel' ? 'active' : ''}`}
-          onClick={() => setTab('channel')}
-        >
-          Каналы
-        </div>
-        <div 
-          className={`tab ${tab === 'chat' ? 'active' : ''}`}
-          onClick={() => setTab('chat')}
-        >
-          Чаты
-        </div>
-        <div 
-          className={`tab ${tab === 'reaction' ? 'active' : ''}`}
-          onClick={() => setTab('reaction')}
-        >
-          Реакции
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center items-center" style={{ minHeight: '200px' }}>
-          <div className="spinner"></div>
-        </div>
-      ) : posts.length === 0 && !showCreateForm ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">💬</div>
-          <div className="empty-state-title">Нет запросов</div>
-          <div className="empty-state-text">Создайте свой первый запрос взаимки</div>
-          {channels.length > 0 && (
-            <button
-              className="button button-primary"
-              onClick={() => setShowCreateForm(true)}
-              style={{ marginTop: '16px' }}
-            >
-              ➕ Создать запрос
-            </button>
-          )}
-        </div>
-      ) : (
-        <>
-          {posts.map(post => (
-            <div key={post.id} className="post-card">
-              <div className="post-header">
-                <div className="post-title">{post.channel_title}</div>
-                <div className="post-time">{post.time_ago}</div>
-              </div>
-              <div className="post-meta">
-                {post.post_type === 'channel' && 'Взаимная подписка на канал'}
-                {post.post_type === 'chat' && 'Взаимная подписка на чат'}
-                {post.post_type === 'reaction' && 'Обмен реакциями'}
-                {post.conditions && ` • ${post.conditions}`}
-              </div>
-              <div style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                👥 {post.members_count} подписчиков • ⭐ {post.creator_rating} рейтинг
-              </div>
-              <button
-                className="button button-primary button-small"
-                onClick={() => handleRespond(post.id)}
-              >
-                ✓ Откликнуться
-              </button>
-            </div>
-          ))}
-        </>
-      )}
-
-      {!showCreateForm && channels.length > 0 && (
-        <button
-          className="button button-secondary"
-          onClick={() => setShowCreateForm(true)}
-          style={{ marginTop: '12px' }}
-        >
-          ➕ Создать запрос
-        </button>
-      )}
-
-      {showCreateForm && (
-        <div className="card" style={{ marginTop: '12px', border: '2px solid var(--primary)' }}>
-          <h2 style={{ marginBottom: '12px', fontWeight: '600' }}>Создать запрос</h2>
-          <form onSubmit={handleCreatePost}>
-            <div className="form-group">
-              <label className="form-label">Выберите канал</label>
-              <select
-                className="form-select"
-                value={formData.channel_id}
-                onChange={(e) => setFormData({ ...formData, channel_id: e.target.value })}
-                disabled={formLoading}
-              >
-                <option value="">-- Выберите канал --</option>
-                {channels.map(ch => (
-                  <option key={ch.id} value={ch.id}>
-                    {ch.title} ({ch.type === 'channel' ? '📢' : '💬'})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Тип взаимки</label>
-              <select
-                className="form-select"
-                value={formData.post_type}
-                onChange={(e) => setFormData({ ...formData, post_type: e.target.value })}
-                disabled={formLoading}
-              >
-                <option value="channel">📢 Подписка на канал</option>
-                <option value="chat">💬 Подписка на чат</option>
-                <option value="reaction">😊 Реакции</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Условия (опционально)</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="например: до 500 подписчиков"
-                value={formData.conditions}
-                onChange={(e) => setFormData({ ...formData, conditions: e.target.value })}
-                disabled={formLoading}
-              />
-            </div>
-
-            {formError && <div className="form-error">{formError}</div>}
-
-            <button
-              type="submit"
-              className="button button-primary mb-12"
-              disabled={formLoading}
-            >
-              {formLoading ? (
-                <>
-                  <div className="spinner"></div>
-                  Публикация...
-                </>
-              ) : (
-                '✓ Опубликовать'
-              )}
-            </button>
-
-            <button
-              type="button"
-              className="button button-secondary"
-              onClick={() => {
-                setShowCreateForm(false);
-                setFormError('');
-              }}
-              disabled={formLoading}
-            >
-              Отмена
-            </button>
-          </form>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Profile({ user }) {
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
-  const loadProfile = async () => {
     try {
-      const data = await api.get('/profile');
-      setProfile(data.user);
-    } catch (err) {
-      console.error('Failed to load profile:', err);
-    } finally {
-      setLoading(false);
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/mutuals/list?type=${app.currentMutualType}`, {
+            headers: {
+                'X-Telegram-Init-Data': initData
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+
+            if (data.mutuals.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🤝</div>
+                        <div class="empty-state-text">Нет доступных взаимок</div>
+                    </div>
+                `;
+            } else {
+                list.innerHTML = data.mutuals.map(mutual => `
+                    <div class="mutual-card">
+                        <div class="channel-header">
+                            <div class="channel-avatar">${mutual.mutual_type === 'subscribe' ? '📢' : '👍'}</div>
+                            <div class="channel-info">
+                                <div class="channel-name">${mutual.channel?.title || 'Канал'}</div>
+                                <div class="channel-meta">
+                                    ${mutual.mutual_type === 'subscribe' ? 'Подписка' : 'Реакция'} • 
+                                    Требуется: ${mutual.required_count} • 
+                                    Удержание: ${mutual.hold_hours}ч • 
+                                    Рейтинг партнёра: ${mutual.creator_rating}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="channel-actions">
+                            <button class="btn btn-primary" onclick="app.joinMutual(${mutual.id})">
+                                Участвовать
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (error) {
+        console.error('Load mutuals error:', error);
+        list.innerHTML = '<div class="error-message active">Ошибка загрузки взаимок</div>';
     }
-  };
+};
 
-  return (
-    <div className="app-content">
-      <h1 style={{ marginBottom: '16px', fontSize: '24px', fontWeight: '700' }}>Профиль</h1>
-
-      {loading ? (
-        <div className="flex justify-center items-center" style={{ minHeight: '200px' }}>
-          <div className="spinner"></div>
-        </div>
-      ) : profile ? (
-        <>
-          <div className="card">
-            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-              <div style={{ fontSize: '48px', marginBottom: '12px' }}>👤</div>
-              <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '4px' }}>ID: {profile.id}</div>
-              <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Участник с {new Date(profile.created_at).toLocaleDateString('ru-RU')}
-              </div>
-            </div>
-
-            <div className="stats-grid">
-              <div className="stat-item">
-                <div className="stat-label">Рейтинг</div>
-                <div className="stat-value">⭐ {profile.rating}</div>
-              </div>
-              <div className="stat-item">
-                <div className="stat-label">Каналов</div>
-                <div className="stat-value">{profile.channels_count}</div>
-              </div>
-              <div className="stat-item">
-                <div className="stat-label">Выполнено</div>
-                <div className="stat-value">{profile.completed_mutuals}</div>
-              </div>
-              <div className="stat-item">
-                <div className="stat-label">Активных</div>
-                <div className="stat-value">{profile.active_mutuals}</div>
-              </div>
-            </div>
-          </div>
-
-          {profile.is_banned && (
-            <div className="alert alert-error">
-              ⛔ Ваш аккаунт заблокирован
-            </div>
-          )}
-
-          <button className="button button-danger" style={{ marginTop: '12px' }}>
-            🚪 Выйти
-          </button>
-        </>
-      ) : null}
-    </div>
-  );
-}
-
-// Main App component
-function App() {
-  const [currentScreen, setCurrentScreen] = useState('home');
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    initWebApp();
-  }, []);
-
-  const initWebApp = async () => {
+// Участие во взаимке
+app.joinMutual = async (mutualId) => {
     try {
-      if (window.Telegram?.WebApp) {
-        const webapp = window.Telegram.WebApp;
-        webapp.ready();
-        webapp.expand();
-      }
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/mutuals/join`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': initData
+            },
+            body: JSON.stringify({
+                mutualId: mutualId,
+                userId: app.userId
+            })
+        });
 
-      // Initialize user
-      const data = await api.post('/auth', {});
-      setUser(data.user);
-    } catch (err) {
-      console.error('Failed to initialize:', err);
-      setError(err.message || 'Ошибка инициализации');
-    } finally {
-      setLoading(false);
+        const data = await response.json();
+
+        if (response.ok) {
+            app.currentTask = { mutualId: mutualId };
+            app.showTask(mutualId);
+        } else {
+            tg.showAlert(data.error || 'Ошибка при участии во взаимке');
+        }
+    } catch (error) {
+        console.error('Join mutual error:', error);
+        tg.showAlert('Ошибка при участии во взаимке');
     }
-  };
+};
 
-  if (loading) {
-    return (
-      <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div className="spinner"></div>
-      </div>
-    );
-  }
+// Показать задание
+app.showTask = async (mutualId) => {
+    try {
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/mutuals/list?type=`, {
+            headers: {
+                'X-Telegram-Init-Data': initData
+            }
+        });
 
-  if (error) {
-    return (
-      <div className="app-container" style={{ padding: '20px', textAlign: 'center', fontFamily: 'sans-serif' }}>
-        <h2 style={{ color: '#FF3B30' }}>❌ Ошибка инициализации</h2>
-        <p>{error}</p>
-        <button
-          onClick={() => location.reload()}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: '#2AABEE',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '16px'
-          }}
-        >
-          Обновить страницу
-        </button>
-      </div>
-    );
-  }
+        if (response.ok) {
+            const data = await response.json();
+            const mutual = data.mutuals.find(m => m.id === mutualId);
+            
+            if (mutual) {
+                app.currentTask = mutual;
+                const channel = mutual.channel;
+                const channelLink = channel.username 
+                    ? `https://t.me/${channel.username}`
+                    : `https://t.me/c/${String(channel.tg_id).replace('-100', '')}`;
 
-  return (
-    <div className="app-container">
-      <div className="app-main">
-        {currentScreen === 'home' && <Home user={user} onNavigate={setCurrentScreen} />}
-        {currentScreen === 'channels' && <Channels onNavigate={setCurrentScreen} />}
-        {currentScreen === 'mutuals' && <Mutuals onNavigate={setCurrentScreen} />}
-        {currentScreen === 'chat' && <Chat />}
-        {currentScreen === 'profile' && <Profile user={user} />}
-      </div>
+                document.getElementById('task-title').textContent = channel.title;
+                document.getElementById('task-info').innerHTML = `
+                    <p>Тип: ${mutual.mutual_type === 'subscribe' ? 'Подписка' : 'Реакция'}</p>
+                    <p>Удержание: ${mutual.hold_hours} часов</p>
+                `;
+                document.getElementById('task-link').href = channelLink;
+                document.getElementById('task-error').classList.remove('active');
 
-      <nav className="bottom-nav">
-        <div 
-          className={`nav-item ${currentScreen === 'home' ? 'active' : ''}`}
-          onClick={() => setCurrentScreen('home')}
-        >
-          <div className="nav-item-icon">🏠</div>
-          <div>Главная</div>
-        </div>
-        <div 
-          className={`nav-item ${currentScreen === 'mutuals' ? 'active' : ''}`}
-          onClick={() => setCurrentScreen('mutuals')}
-        >
-          <div className="nav-item-icon">🔗</div>
-          <div>Взаимки</div>
-        </div>
-        <div 
-          className={`nav-item ${currentScreen === 'chat' ? 'active' : ''}`}
-          onClick={() => setCurrentScreen('chat')}
-        >
-          <div className="nav-item-icon">💬</div>
-          <div>Чат</div>
-        </div>
-        <div 
-          className={`nav-item ${currentScreen === 'channels' ? 'active' : ''}`}
-          onClick={() => setCurrentScreen('channels')}
-        >
-          <div className="nav-item-icon">📺</div>
-          <div>Каналы</div>
-        </div>
-        <div 
-          className={`nav-item ${currentScreen === 'profile' ? 'active' : ''}`}
-          onClick={() => setCurrentScreen('profile')}
-        >
-          <div className="nav-item-icon">👤</div>
-          <div>Профиль</div>
-        </div>
-      </nav>
-    </div>
-  );
-}
+                document.getElementById('modal-overlay').classList.add('active');
+                document.getElementById('modal-task').classList.add('active');
+            }
+        }
+    } catch (error) {
+        console.error('Show task error:', error);
+    }
+};
 
-root.render(<App />);
+// Проверка выполнения задания
+app.checkTask = async () => {
+    if (!app.currentTask) return;
+
+    const errorDiv = document.getElementById('task-error');
+    errorDiv.classList.remove('active');
+
+    try {
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/mutuals/check`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': initData
+            },
+            body: JSON.stringify({
+                mutualId: app.currentTask.id,
+                userId: app.userId
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            tg.showAlert('✅ Взаимка выполнена!');
+            app.closeModal();
+            app.loadMutuals();
+            app.loadHomeStats();
+        } else {
+            errorDiv.textContent = data.error || 'Действие не найдено';
+            errorDiv.classList.add('active');
+        }
+    } catch (error) {
+        console.error('Check task error:', error);
+        errorDiv.textContent = 'Ошибка при проверке';
+        errorDiv.classList.add('active');
+    }
+};
+
+// Загрузка постов чата
+app.loadChatPosts = async () => {
+    const list = document.getElementById('chat-list');
+    list.innerHTML = '<div class="loading">Загрузка...</div>';
+
+    try {
+        const initData = tg.initData;
+        const type = app.currentChatType === 'channel' ? 'channel' : 
+                     app.currentChatType === 'chat' ? 'chat' : 'reaction';
+        
+        const response = await fetch(`${app.apiUrl}/chat/list?type=${type}`, {
+            headers: {
+                'X-Telegram-Init-Data': initData
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+
+            if (data.posts.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">💬</div>
+                        <div class="empty-state-text">Нет сообщений</div>
+                    </div>
+                `;
+            } else {
+                list.innerHTML = data.posts.map(post => `
+                    <div class="chat-post-card">
+                        <div class="post-header">
+                            <div class="post-avatar">${post.post_type === 'channel' ? '📢' : post.post_type === 'chat' ? '💬' : '👍'}</div>
+                            <div class="post-info">
+                                <div class="post-name">${post.channel?.title || 'Канал'}</div>
+                                <div class="post-meta">
+                                    ${post.post_type === 'channel' ? 'Взаимная подписка' : 
+                                      post.post_type === 'chat' ? 'Взаимная подписка на чат' : 
+                                      'Обмен реакциями'} • 
+                                    ${post.conditions} • 
+                                    Рейтинг: ${post.user_rating} • 
+                                    ${app.formatTime(post.created_at)}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="channel-actions">
+                            <button class="btn btn-primary" onclick="app.respondToPost(${post.id})">
+                                Откликнуться
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (error) {
+        console.error('Load chat posts error:', error);
+        list.innerHTML = '<div class="error-message active">Ошибка загрузки сообщений</div>';
+    }
+};
+
+// Показать модалку создания поста
+app.showCreatePost = () => {
+    // Заполняем список каналов
+    const select = document.getElementById('post-channel');
+    select.innerHTML = '<option value="">Выберите канал</option>';
+    app.channels.forEach(channel => {
+        const option = document.createElement('option');
+        option.value = channel.id;
+        option.textContent = channel.title;
+        select.appendChild(option);
+    });
+
+    document.getElementById('modal-overlay').classList.add('active');
+    document.getElementById('modal-create-post').classList.add('active');
+    document.getElementById('post-error').classList.remove('active');
+};
+
+// Создать пост
+app.createPost = async () => {
+    const channelId = document.getElementById('post-channel').value;
+    const postType = document.getElementById('post-type').value;
+    const conditions = document.getElementById('post-conditions').value;
+    const errorDiv = document.getElementById('post-error');
+
+    if (!channelId) {
+        errorDiv.textContent = 'Выберите канал';
+        errorDiv.classList.add('active');
+        return;
+    }
+
+    errorDiv.classList.remove('active');
+
+    try {
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/chat/post`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': initData
+            },
+            body: JSON.stringify({
+                channelId: channelId,
+                postType: postType,
+                conditions: conditions,
+                userId: app.userId
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            tg.showAlert('Запрос опубликован!');
+            app.closeModal();
+            app.loadChatPosts();
+        } else {
+            errorDiv.textContent = data.error || 'Ошибка при публикации';
+            errorDiv.classList.add('active');
+        }
+    } catch (error) {
+        console.error('Create post error:', error);
+        errorDiv.textContent = 'Ошибка при публикации';
+        errorDiv.classList.add('active');
+    }
+};
+
+// Откликнуться на пост
+app.respondToPost = async (postId) => {
+    try {
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/chat/respond`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': initData
+            },
+            body: JSON.stringify({
+                postId: postId,
+                userId: app.userId
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            tg.showAlert('✅ Взаимка создана! Проверьте уведомления.');
+            app.loadChatPosts();
+        } else {
+            tg.showAlert(data.error || 'Ошибка при отклике');
+        }
+    } catch (error) {
+        console.error('Respond to post error:', error);
+        tg.showAlert('Ошибка при отклике');
+    }
+};
+
+// Закрыть модалку
+app.closeModal = () => {
+    document.getElementById('modal-overlay').classList.remove('active');
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.classList.remove('active');
+    });
+};
+
+// Форматирование времени
+app.formatTime = (timestamp) => {
+    const now = new Date();
+    const time = new Date(timestamp);
+    const diff = Math.floor((now - time) / 1000 / 60);
+    
+    if (diff < 1) return 'только что';
+    if (diff < 60) return `${diff} мин назад`;
+    const hours = Math.floor(diff / 60);
+    if (hours < 24) return `${hours} ч назад`;
+    const days = Math.floor(hours / 24);
+    return `${days} дн назад`;
+};
+

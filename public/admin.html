@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SubSwap - Админ-панель</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            margin-bottom: 20px;
+            color: #2AABEE;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #2AABEE;
+        }
+        .stat-label {
+            color: #757575;
+            margin-top: 8px;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        th {
+            background: #f5f5f5;
+            font-weight: 600;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 8px;
+        }
+        .btn-danger {
+            background: #F44336;
+            color: white;
+        }
+        .btn-primary {
+            background: #2AABEE;
+            color: white;
+        }
+        input {
+            padding: 8px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SubSwap - Админ-панель</h1>
+        
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="stat-users">—</div>
+                <div class="stat-label">Пользователей</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-channels">—</div>
+                <div class="stat-label">Каналов</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-mutuals">—</div>
+                <div class="stat-label">Активных взаимок</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Пользователи</h2>
+            <input type="text" id="admin-user-id" placeholder="Telegram ID">
+            <button class="btn btn-primary" onclick="loadUsers()">Обновить</button>
+            <table id="users-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Рейтинг</th>
+                        <th>Создан</th>
+                        <th>Забанен</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>Каналы</h2>
+            <button class="btn btn-primary" onclick="loadChannels()">Обновить</button>
+            <table id="channels-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Название</th>
+                        <th>Тип</th>
+                        <th>Владелец</th>
+                        <th>Подписчиков</th>
+                        <th>Активен</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin + '/admin';
+        const userId = prompt('Введите ваш Telegram ID:');
+
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_URL}/stats?userId=${userId}`);
+                const data = await response.json();
+                document.getElementById('stat-users').textContent = data.users;
+                document.getElementById('stat-channels').textContent = data.channels;
+                document.getElementById('stat-mutuals').textContent = data.active_mutuals;
+            } catch (error) {
+                console.error('Load stats error:', error);
+            }
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch(`${API_URL}/users?userId=${userId}`);
+                const data = await response.json();
+                const tbody = document.querySelector('#users-table tbody');
+                tbody.innerHTML = data.users.map(user => `
+                    <tr>
+                        <td>${user.id}</td>
+                        <td>${user.rating}</td>
+                        <td>${new Date(user.created_at).toLocaleDateString()}</td>
+                        <td>${user.is_banned ? 'Да' : 'Нет'}</td>
+                        <td>
+                            ${!user.is_banned ? `<button class="btn btn-danger" onclick="banUser(${user.id})">Забанить</button>` : ''}
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Load users error:', error);
+            }
+        }
+
+        async function loadChannels() {
+            try {
+                const response = await fetch(`${API_URL}/channels?userId=${userId}`);
+                const data = await response.json();
+                const tbody = document.querySelector('#channels-table tbody');
+                tbody.innerHTML = data.channels.map(channel => `
+                    <tr>
+                        <td>${channel.id}</td>
+                        <td>${channel.title}</td>
+                        <td>${channel.type}</td>
+                        <td>${channel.owner_telegram_id}</td>
+                        <td>${channel.members_count}</td>
+                        <td>${channel.is_active ? 'Да' : 'Нет'}</td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Load channels error:', error);
+            }
+        }
+
+        async function banUser(userIdToBan) {
+            if (!confirm('Забанить пользователя?')) return;
+            try {
+                const response = await fetch(`${API_URL}/users/ban`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: userIdToBan, adminUserId: userId })
+                });
+                if (response.ok) {
+                    alert('Пользователь забанен');
+                    loadUsers();
+                }
+            } catch (error) {
+                console.error('Ban user error:', error);
+            }
+        }
+
+        // Загружаем данные при загрузке страницы
+        loadStats();
+        loadUsers();
+        loadChannels();
+    </script>
+</body>
+</html>
+

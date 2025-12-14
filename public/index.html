@@ -1,19 +1,240 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Wormz - Взаимки</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="/styles.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SubSwap - Взаимные подписки</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="app" class="app-container">
-    <!-- App will render here -->
-  </div>
-  
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="/app.js"></script>
+    <div id="app">
+        <!-- Навигация -->
+        <nav class="bottom-nav">
+            <button class="nav-item active" data-page="home">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-label">Главная</span>
+            </button>
+            <button class="nav-item" data-page="mutuals">
+                <span class="nav-icon">🤝</span>
+                <span class="nav-label">Взаимки</span>
+            </button>
+            <button class="nav-item" data-page="chat">
+                <span class="nav-icon">💬</span>
+                <span class="nav-label">Чат</span>
+            </button>
+            <button class="nav-item" data-page="channels">
+                <span class="nav-icon">📢</span>
+                <span class="nav-label">Мои каналы</span>
+            </button>
+            <button class="nav-item" data-page="profile">
+                <span class="nav-icon">👤</span>
+                <span class="nav-label">Профиль</span>
+            </button>
+        </nav>
+
+        <!-- Главная страница -->
+        <div id="page-home" class="page active">
+            <div class="container">
+                <h1 class="page-title">Главная</h1>
+                
+                <!-- Статистика -->
+                <div class="card stats-card">
+                    <h2>Ваш прогресс</h2>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-subscribers">—</div>
+                            <div class="stat-label">Получено подписчиков</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-active">—</div>
+                            <div class="stat-label">Активных взаимок</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-rating">—</div>
+                            <div class="stat-label">⭐ Рейтинг</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Основные действия -->
+                <div class="card actions-card">
+                    <button class="btn btn-primary btn-large" onclick="app.showPage('mutuals')">
+                        Найти взаимку
+                    </button>
+                    <button class="btn btn-outline btn-large" onclick="app.showPage('channels')">
+                        Добавить канал
+                    </button>
+                </div>
+
+                <!-- Информационный блок -->
+                <div class="card info-card">
+                    <h2>Как это работает</h2>
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-icon">1️⃣</div>
+                            <div class="step-text">Добавь канал</div>
+                        </div>
+                        <div class="step">
+                            <div class="step-icon">2️⃣</div>
+                            <div class="step-text">Найди взаимку</div>
+                        </div>
+                        <div class="step">
+                            <div class="step-icon">3️⃣</div>
+                            <div class="step-text">Получай рост без банов</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Страница взаимок -->
+        <div id="page-mutuals" class="page">
+            <div class="container">
+                <h1 class="page-title">Взаимки</h1>
+                
+                <div class="tabs">
+                    <button class="tab active" data-type="subscribe">Подписки</button>
+                    <button class="tab" data-type="reaction">Реакции</button>
+                </div>
+
+                <div id="mutuals-list" class="mutuals-list">
+                    <div class="loading">Загрузка...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Страница чата -->
+        <div id="page-chat" class="page">
+            <div class="container">
+                <h1 class="page-title">Взаимки</h1>
+                
+                <div class="tabs">
+                    <button class="tab active" data-type="channel">Каналы</button>
+                    <button class="tab" data-type="chat">Чаты</button>
+                    <button class="tab" data-type="reaction">Реакции</button>
+                </div>
+
+                <div id="chat-list" class="chat-list">
+                    <div class="loading">Загрузка...</div>
+                </div>
+
+                <button class="btn btn-primary btn-fab" onclick="app.showCreatePost()">
+                    ➕ Создать запрос
+                </button>
+            </div>
+        </div>
+
+        <!-- Страница каналов -->
+        <div id="page-channels" class="page">
+            <div class="container">
+                <h1 class="page-title">Мои каналы</h1>
+                
+                <div id="channels-list" class="channels-list">
+                    <div class="loading">Загрузка...</div>
+                </div>
+
+                <button class="btn btn-primary btn-large" onclick="app.showAddChannel()">
+                    ➕ Добавить канал
+                </button>
+            </div>
+        </div>
+
+        <!-- Страница профиля -->
+        <div id="page-profile" class="page">
+            <div class="container">
+                <h1 class="page-title">Профиль</h1>
+                
+                <div class="card">
+                    <div class="profile-info">
+                        <div class="profile-item">
+                            <span class="profile-label">Telegram ID</span>
+                            <span class="profile-value" id="profile-id">—</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="profile-label">Рейтинг</span>
+                            <span class="profile-value" id="profile-rating">—</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="profile-label">Выполнено взаимок</span>
+                            <span class="profile-value" id="profile-completed">—</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="profile-label">Активных взаимок</span>
+                            <span class="profile-value" id="profile-active">—</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальные окна -->
+    <div id="modal-overlay" class="modal-overlay" onclick="app.closeModal()"></div>
+    
+    <!-- Модалка добавления канала -->
+    <div id="modal-add-channel" class="modal">
+        <div class="modal-content">
+            <h2>Добавить канал</h2>
+            <input type="text" id="channel-link" class="input" placeholder="https://t.me/...">
+            <div class="radio-group">
+                <label class="radio">
+                    <input type="radio" name="channel-type" value="channel" checked>
+                    <span>Канал</span>
+                </label>
+                <label class="radio">
+                    <input type="radio" name="channel-type" value="chat">
+                    <span>Чат</span>
+                </label>
+            </div>
+            <div id="channel-error" class="error-message"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="app.closeModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="app.addChannel()">Проверить и добавить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка создания поста в чате -->
+    <div id="modal-create-post" class="modal">
+        <div class="modal-content">
+            <h2>Создать запрос</h2>
+            <select id="post-channel" class="input">
+                <option value="">Выберите канал</option>
+            </select>
+            <select id="post-type" class="input">
+                <option value="channel">Подписка на канал</option>
+                <option value="chat">Подписка на чат</option>
+                <option value="reaction">Реакции</option>
+            </select>
+            <select id="post-conditions" class="input">
+                <option value="до 300">до 300</option>
+                <option value="300–1000">300–1000</option>
+                <option value="без ограничений">без ограничений</option>
+            </select>
+            <div id="post-error" class="error-message"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="app.closeModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="app.createPost()">Опубликовать</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модалка задания -->
+    <div id="modal-task" class="modal">
+        <div class="modal-content">
+            <h2 id="task-title">Задание</h2>
+            <div id="task-info"></div>
+            <div id="task-error" class="error-message"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="app.closeModal()">Закрыть</button>
+                <a id="task-link" class="btn btn-primary" target="_blank">Перейти в Telegram</a>
+                <button class="btn btn-primary" onclick="app.checkTask()">Проверить выполнение</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
 </body>
 </html>
+

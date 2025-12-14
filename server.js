@@ -1,62 +1,60 @@
-import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import path from 'path';
+import bodyParser from 'body-parser';
+import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import pool, { initializeDatabase } from './db/pool.js';
-import { setupTelegramBot } from './bot/bot.js';
-import { setupApiRoutes } from './routes/api.js';
+import { dirname, join } from 'path';
+import bot from './bot.js';
+import apiRoutes from './routes/api.js';
+import adminRoutes from './routes/admin.js';
+import { startScheduler } from './services/scheduler.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Статические файлы для MiniApp
+app.use(express.static(join(__dirname, 'public')));
+
+// API routes
+app.use('/api', apiRoutes);
+app.use('/admin', adminRoutes);
+
+// Главная страница MiniApp
+app.get('/', (req, res) => {
+  res.sendFile(join(__dirname, 'public', 'index.html'));
+});
+
+// Админ-панель
+app.get('/admin', (req, res) => {
+  res.sendFile(join(__dirname, 'public', 'admin.html'));
+});
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API routes
-setupApiRoutes(app);
-
-// Serve MiniApp
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// Запуск сервера
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`MiniApp URL: ${process.env.WEBAPP_URL}`);
+  
+  // Запускаем планировщик задач
+  startScheduler();
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not found' });
+// Обработка ошибок
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled rejection:', error);
 });
 
-// Initialize and start server
-async function start() {
-  try {
-    // Initialize database
-    await initializeDatabase();
-    
-    // Setup Telegram bot
-    const bot = setupTelegramBot();
-    
-    // Start server
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`🤖 Telegram bot started: @${process.env.BOT_USERNAME}`);
-      console.log(`📱 MiniApp available at ${process.env.WEBAPP_URL}`);
-    });
-    
-  } catch (err) {
-    console.error('❌ Failed to start server:', err);
-    process.exit(1);
-  }
-}
-
-start();
-
-export default app;
