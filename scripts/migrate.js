@@ -110,12 +110,54 @@ const createTables = async () => {
       )
     `);
 
+    // Таблица chats (чаты между пользователями)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS chats (
+        id SERIAL PRIMARY KEY,
+        user1_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+        user2_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+        mutual_id INT REFERENCES mutuals(id) ON DELETE SET NULL,
+        status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed', 'expired')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL,
+        user1_completed BOOLEAN DEFAULT FALSE,
+        user2_completed BOOLEAN DEFAULT FALSE,
+        UNIQUE(user1_id, user2_id, mutual_id)
+      )
+    `);
+
+    // Таблица messages (сообщения в чатах)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        chat_id INT REFERENCES chats(id) ON DELETE CASCADE,
+        user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Таблица general_chat (общий чат)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS general_chat_messages (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Индексы для производительности
     await client.query(`CREATE INDEX IF NOT EXISTS idx_channels_owner ON channels(owner_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_mutuals_creator ON mutuals(creator_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_mutuals_status ON mutuals(status)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_actions_user ON actions(user_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_chat_posts_active ON chat_posts(is_active, expires_at)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chats_user1 ON chats(user1_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chats_user2 ON chats(user2_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chats_status ON chats(status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_general_chat_created ON general_chat_messages(created_at)`);
 
     console.log('Migration completed successfully');
   } catch (error) {

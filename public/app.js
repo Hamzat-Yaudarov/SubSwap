@@ -11,6 +11,8 @@ const app = {
     currentMutualType: 'subscribe',
     currentChatType: 'channel',
     currentTask: null,
+    currentMutual: null,
+    currentChatId: null,
     apiUrl: window.location.origin + '/api'
 };
 
@@ -63,7 +65,7 @@ app.init = async () => {
             await app.loadProfile();
             await app.loadChannels();
             await app.loadMutuals();
-            await app.loadChatPosts();
+            await app.loadChats();
         } else {
             console.error('No userId available');
             tg.showAlert('Ошибка авторизации. Перезапустите приложение.');
@@ -109,7 +111,7 @@ app.showPage = (pageName) => {
     if (pageName === 'mutuals') {
         app.loadMutuals();
     } else if (pageName === 'chat') {
-        app.loadChatPosts();
+        app.loadChats();
     } else if (pageName === 'channels') {
         app.loadChannels();
     } else if (pageName === 'profile') {
@@ -355,7 +357,7 @@ app.loadMutuals = async () => {
     }
 };
 
-// Участие во взаимке
+// Участие во взаимке - показываем модалку
 app.joinMutual = async (mutualId) => {
     try {
         const initData = tg.initData;
@@ -374,14 +376,68 @@ app.joinMutual = async (mutualId) => {
         const data = await response.json();
 
         if (response.ok) {
-            app.currentTask = { mutualId: mutualId };
-            app.showTask(mutualId);
+            app.currentMutual = data.mutual;
+            app.showJoinMutualModal();
         } else {
             tg.showAlert(data.error || 'Ошибка при участии во взаимке');
         }
     } catch (error) {
         console.error('Join mutual error:', error);
         tg.showAlert('Ошибка при участии во взаимке');
+    }
+};
+
+// Показать модалку участия
+app.showJoinMutualModal = () => {
+    if (!app.currentMutual) return;
+    
+    document.getElementById('join-mutual-title').textContent = 'Участие во взаимке';
+    document.getElementById('join-mutual-info').innerHTML = `
+        <p><strong>Канал:</strong> ${app.currentMutual.channel?.title || 'Неизвестный'}</p>
+        <p><strong>Тип:</strong> ${app.currentMutual.mutual_type === 'subscribe' ? 'Подписка' : 'Реакция'}</p>
+        <p>Нажмите "Начать чат" чтобы начать общение с создателем взаимки.</p>
+    `;
+    document.getElementById('join-mutual-error').classList.remove('active');
+    
+    document.getElementById('modal-overlay').classList.add('active');
+    document.getElementById('modal-join-mutual').classList.add('active');
+};
+
+// Начать чат для взаимки
+app.startChatForMutual = async () => {
+    if (!app.currentMutual) return;
+    
+    const errorDiv = document.getElementById('join-mutual-error');
+    errorDiv.classList.remove('active');
+    
+    try {
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/chats/start`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': initData
+            },
+            body: JSON.stringify({
+                mutualId: app.currentMutual.id,
+                userId: app.userId
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            app.closeModal();
+            app.currentChatId = data.chat.id;
+            app.showChatView(data.chat.id);
+        } else {
+            errorDiv.textContent = data.error || 'Ошибка при создании чата';
+            errorDiv.classList.add('active');
+        }
+    } catch (error) {
+        console.error('Start chat error:', error);
+        errorDiv.textContent = 'Ошибка при создании чата';
+        errorDiv.classList.add('active');
     }
 };
 
@@ -462,8 +518,297 @@ app.checkTask = async () => {
     }
 };
 
-// Загрузка постов чата
+// Загрузка чатов
+app.loadChats = async () => {
+    const list = document.getElementById('chats-list');
+    if (!list) return;
+    
+    list.innerHTML = '<div class="loading">Загрузка...</div>';
+
+    try {
+        const initData = tg.initData || '';
+        const response = await fetch(`${app.apiUrl}/chats`, {
+            headers: {
+                'X-Telegram-Init-Data': initData,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const chats = data.chats || [];
+
+        // Добавляем общий чат в начало
+        const generalChat = {
+            id: 'general',
+            is_general: true,
+            title: 'Общий чат',
+            user1_id: null,
+            user2_id: null
+        };
+
+        if (chats.length === 0 && !generalChat) {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">💬</div>
+                    <div class="empty-state-text">Нет чатов</div>
+                </div>
+            `;
+        } else {
+            list.innerHTML = [generalChat, ...chats].map(chat => {
+                if (chat.is_general) {
+                    return `
+                        <div class="chat-card" onclick="app.showGeneralChat()">
+                            <div class="channel-header">
+                                <div class="channel-avatar">💬</div>
+                                <div class="channel-info">
+                                    <div class="channel-name">${chat.title}</div>
+                                    <div class="channel-meta">Общий чат для всех пользователей</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    const otherUserId = chat.user1_id === app.userId ? chat.user2_id : chat.user1_id;
+                    const channelTitle = chat.channel_title || 'Взаимка';
+                    return `
+                        <div class="chat-card" onclick="app.showChatView(${chat.id})">
+                            <div class="channel-header">
+                                <div class="channel-avatar">💬</div>
+                                <div class="channel-info">
+                                    <div class="channel-name">${channelTitle}</div>
+                                    <div class="channel-meta">Чат 1 на 1</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }).join('');
+        }
+    } catch (error) {
+        console.error('Load chats error:', error);
+        list.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">⚠️</div>
+                <div class="empty-state-text">Ошибка загрузки чатов</div>
+                <div style="margin-top: 10px; font-size: 12px; color: #757575;">${error.message}</div>
+            </div>
+        `;
+    }
+};
+
+// Показать общий чат
+app.showGeneralChat = () => {
+    app.currentChatId = 'general';
+    app.showChatView('general');
+};
+
+// Показать конкретный чат
+app.showChatView = async (chatId) => {
+    app.currentChatId = chatId;
+    
+    // Скрываем все страницы
+    document.querySelectorAll('.page').forEach(page => {
+        page.classList.remove('active');
+    });
+    
+    // Показываем страницу чата
+    const page = document.getElementById('page-chat-view');
+    if (page) {
+        page.classList.add('active');
+    }
+    
+    // Устанавливаем заголовок
+    const titleEl = document.getElementById('chat-title');
+    if (titleEl) {
+        if (chatId === 'general') {
+            titleEl.textContent = 'Общий чат';
+        } else {
+            // Загружаем информацию о чате для заголовка
+            const chats = await fetch(`${app.apiUrl}/chats`, {
+                headers: {
+                    'X-Telegram-Init-Data': tg.initData || '',
+                    'Content-Type': 'application/json'
+                }
+            }).then(r => r.json()).catch(() => ({ chats: [] }));
+            
+            const chat = chats.chats?.find(c => c.id === chatId);
+            if (chat) {
+                titleEl.textContent = chat.channel_title || 'Чат';
+            } else {
+                titleEl.textContent = 'Чат';
+            }
+        }
+    }
+    
+    // Загружаем сообщения
+    await app.loadChatMessages();
+    
+    // Прокручиваем вниз
+    setTimeout(() => {
+        const messagesDiv = document.getElementById('chat-messages');
+        if (messagesDiv) {
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    }, 100);
+};
+
+// Загрузить сообщения чата
+app.loadChatMessages = async () => {
+    const messagesDiv = document.getElementById('chat-messages');
+    if (!messagesDiv) return;
+    
+    messagesDiv.innerHTML = '<div class="loading">Загрузка...</div>';
+
+    try {
+        const initData = tg.initData || '';
+        let response;
+        
+        if (app.currentChatId === 'general') {
+            response = await fetch(`${app.apiUrl}/general-chat`, {
+                headers: {
+                    'X-Telegram-Init-Data': initData,
+                    'Content-Type': 'application/json'
+                }
+            });
+        } else {
+            response = await fetch(`${app.apiUrl}/chats/${app.currentChatId}/messages`, {
+                headers: {
+                    'X-Telegram-Init-Data': initData,
+                    'Content-Type': 'application/json'
+                }
+            });
+        }
+
+        if (!response.ok) {
+            throw new Error('Failed to load messages');
+        }
+
+        const data = await response.json();
+        const messages = data.messages || [];
+
+        if (messages.length === 0) {
+            messagesDiv.innerHTML = '<div class="empty-state">Нет сообщений</div>';
+        } else {
+            messagesDiv.innerHTML = messages.map(msg => {
+                const isOwn = msg.user_telegram_id === app.userId;
+                return `
+                    <div class="message ${isOwn ? 'message-own' : 'message-other'}">
+                        <div class="message-text">${msg.text}</div>
+                        <div class="message-time">${app.formatTime(msg.created_at)}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Прокручиваем вниз
+        setTimeout(() => {
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }, 100);
+        
+        // Показываем кнопку "Выполнено" для личных чатов
+        if (app.currentChatId !== 'general') {
+            const completeSection = document.getElementById('chat-complete-section');
+            if (completeSection) {
+                completeSection.style.display = 'block';
+            }
+        }
+    } catch (error) {
+        console.error('Load messages error:', error);
+        messagesDiv.innerHTML = '<div class="error-message active">Ошибка загрузки сообщений</div>';
+    }
+};
+
+// Отправить сообщение
+app.sendMessage = async () => {
+    const input = document.getElementById('chat-input');
+    if (!input || !input.value.trim()) return;
+    
+    const text = input.value.trim();
+    input.value = '';
+
+    try {
+        const initData = tg.initData || '';
+        let response;
+        
+        if (app.currentChatId === 'general') {
+            response = await fetch(`${app.apiUrl}/general-chat`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData
+                },
+                body: JSON.stringify({
+                    text: text,
+                    userId: app.userId
+                })
+            });
+        } else {
+            response = await fetch(`${app.apiUrl}/chats/${app.currentChatId}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData
+                },
+                body: JSON.stringify({
+                    text: text,
+                    userId: app.userId
+                })
+            });
+        }
+
+        if (response.ok) {
+            await app.loadChatMessages();
+        } else {
+            tg.showAlert('Ошибка при отправке сообщения');
+        }
+    } catch (error) {
+        console.error('Send message error:', error);
+        tg.showAlert('Ошибка при отправке сообщения');
+    }
+};
+
+// Отметить чат как выполненный
+app.completeChat = async () => {
+    if (!app.currentChatId || app.currentChatId === 'general') return;
+    
+    try {
+        const initData = tg.initData;
+        const response = await fetch(`${app.apiUrl}/chats/${app.currentChatId}/complete`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': initData
+            },
+            body: JSON.stringify({
+                userId: app.userId
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            tg.showAlert('✅ Взаимка отмечена как выполненная!');
+            await app.loadChats();
+            app.showPage('chat');
+        } else {
+            tg.showAlert(data.error || 'Ошибка');
+        }
+    } catch (error) {
+        console.error('Complete chat error:', error);
+        tg.showAlert('Ошибка');
+    }
+};
+
+// Старая функция loadChatPosts (удаляем или оставляем для совместимости)
 app.loadChatPosts = async () => {
+    // Больше не используется, перенаправляем на loadChats
+    await app.loadChats();
+};
     const list = document.getElementById('chat-list');
     if (!list) return;
     

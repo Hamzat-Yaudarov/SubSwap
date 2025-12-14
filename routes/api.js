@@ -254,12 +254,16 @@ router.post('/mutuals/create', verifyTelegramWebApp, async (req, res) => {
 
 router.get('/mutuals/list', verifyTelegramWebApp, async (req, res) => {
   try {
+    const userId = req.userId || req.query.userId;
     const { type } = req.query;
     const mutuals = await getActiveMutuals(type || null);
     
+    // Фильтруем свои запросы
+    const filteredMutuals = mutuals.filter(m => m.creator_id !== userId);
+    
     // Добавляем информацию о каналах
     const mutualsWithChannels = await Promise.all(
-      mutuals.map(async (mutual) => {
+      filteredMutuals.map(async (mutual) => {
         try {
           const channel = await getChannel(mutual.channel_id);
           const creator = await getUser(mutual.creator_id);
@@ -309,27 +313,62 @@ router.post('/mutuals/join', verifyTelegramWebApp, async (req, res) => {
       return res.status(400).json({ error: 'Нельзя участвовать в своей взаимке' });
     }
 
+    // Возвращаем информацию о взаимке для показа меню
+    const channel = await getChannel(mutual.channel_id);
+    res.json({ 
+      success: true, 
+      mutual: {
+        ...mutual,
+        channel: channel
+      }
+    });
+  } catch (error) {
+    console.error('Join mutual error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Начать чат для взаимки
+router.post('/chats/start', verifyTelegramWebApp, async (req, res) => {
+  try {
+    const userId = req.userId || req.body.userId;
+    const { mutualId } = req.body;
+
+    if (!mutualId) {
+      return res.status(400).json({ error: 'Mutual ID is required' });
+    }
+
+    const mutual = await getMutual(mutualId);
+    if (!mutual || mutual.status !== 'active') {
+      return res.status(400).json({ error: 'Взаимка не найдена или неактивна' });
+    }
+
+    if (mutual.creator_id === userId) {
+      return res.status(400).json({ error: 'Нельзя начать чат со своей взаимкой' });
+    }
+
+    // Создаём чат
+    const { createChat } = await import('../db/chatQueries.js');
+    const chat = await createChat(mutual.creator_id, userId, mutualId);
+
     // Создаём пару взаимки
-    const pair = await createMutualPair(mutualId, mutual.creator_id, userId);
+    await createMutualPair(mutualId, mutual.creator_id, userId);
     
     // Создаём действия для обоих пользователей
     await createAction(mutualId, mutual.creator_id);
     await createAction(mutualId, userId);
 
-    // Уведомляем обоих пользователей
+    // Уведомляем создателя взаимки
     const channel = await getChannel(mutual.channel_id);
+    const { notifyMutualFound } = await import('../bot.js');
     await notifyMutualFound(mutual.creator_id, {
       channel_title: channel.title,
       mutual_type: mutual.mutual_type
     });
-    await notifyMutualFound(userId, {
-      channel_title: channel.title,
-      mutual_type: mutual.mutual_type
-    });
 
-    res.json({ success: true, pair });
+    res.json({ success: true, chat });
   } catch (error) {
-    console.error('Join mutual error:', error);
+    console.error('Start chat error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -523,6 +562,124 @@ router.post('/chat/respond', verifyTelegramWebApp, async (req, res) => {
     res.json({ success: true, mutual1, mutual2 });
   } catch (error) {
     console.error('Respond to chat post error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Chats
+router.get('/chats', verifyTelegramWebApp, async (req, res) => {
+  try {
+    const userId = req.userId || req.query.userId;
+    const { getUserChats } = await import('../db/chatQueries.js');
+    const chats = await getUserChats(userId);
+    res.json({ chats });
+  } catch (error) {
+    console.error('Get chats error:', error);
+    res.status(500).json({ error: 'Internal server error', chats: [] });
+  }
+});
+
+router.get('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
+  try {
+    const userId = req.userId || req.query.userId;
+    const chatId = parseInt(req.params.id);
+    const { getChat, getChatMessages } = await import('../db/chatQueries.js');
+    
+    const chat = await getChat(chatId);
+    if (!chat || (chat.user1_id !== userId && chat.user2_id !== userId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const messages = await getChatMessages(chatId);
+    res.json({ messages });
+  } catch (error) {
+    console.error('Get chat messages error:', error);
+    res.status(500).json({ error: 'Internal server error', messages: [] });
+  }
+});
+
+router.post('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
+  try {
+    const userId = req.userId || req.body.userId;
+    const chatId = parseInt(req.params.id);
+    const { text } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Message text is required' });
+    }
+
+    const { getChat, addMessage } = await import('../db/chatQueries.js');
+    const chat = await getChat(chatId);
+    
+    if (!chat || (chat.user1_id !== userId && chat.user2_id !== userId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (chat.status !== 'active') {
+      return res.status(400).json({ error: 'Chat is not active' });
+    }
+
+    const message = await addMessage(chatId, userId, text.trim());
+    res.json({ message });
+  } catch (error) {
+    console.error('Send message error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/chats/:id/complete', verifyTelegramWebApp, async (req, res) => {
+  try {
+    const userId = req.userId || req.body.userId;
+    const chatId = parseInt(req.params.id);
+    const { markChatCompleted, getChat } = await import('../db/chatQueries.js');
+    const { updateUserRating } = await import('../db/queries.js');
+    
+    const chat = await getChat(chatId);
+    if (!chat || (chat.user1_id !== userId && chat.user2_id !== userId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const updated = await markChatCompleted(chatId, userId);
+    
+    // Если оба выполнили, начисляем рейтинг
+    if (updated.status === 'completed') {
+      await updateUserRating(chat.user1_id, 2);
+      await updateUserRating(chat.user2_id, 2);
+    }
+
+    res.json({ success: true, chat: updated });
+  } catch (error) {
+    console.error('Complete chat error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// General Chat
+router.get('/general-chat', verifyTelegramWebApp, async (req, res) => {
+  try {
+    const { getGeneralChatMessages } = await import('../db/chatQueries.js');
+    const messages = await getGeneralChatMessages(100);
+    res.json({ messages });
+  } catch (error) {
+    console.error('Get general chat error:', error);
+    res.status(500).json({ error: 'Internal server error', messages: [] });
+  }
+});
+
+router.post('/general-chat', verifyTelegramWebApp, async (req, res) => {
+  try {
+    const userId = req.userId || req.body.userId;
+    const { text } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Message text is required' });
+    }
+
+    const { addGeneralChatMessage } = await import('../db/chatQueries.js');
+    const message = await addGeneralChatMessage(userId, text.trim());
+    res.json({ message });
+  } catch (error) {
+    console.error('Send general chat message error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

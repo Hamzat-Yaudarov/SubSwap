@@ -107,21 +107,34 @@
         <!-- Страница чата -->
         <div id="page-chat" class="page">
             <div class="container">
-                <h1 class="page-title">Взаимки</h1>
+                <h1 class="page-title">Чаты</h1>
                 
-                <div class="tabs">
-                    <button class="tab active" data-type="channel">Каналы</button>
-                    <button class="tab" data-type="chat">Чаты</button>
-                    <button class="tab" data-type="reaction">Реакции</button>
-                </div>
-
-                <div id="chat-list" class="chat-list">
+                <div id="chats-list" class="chats-list">
                     <div class="loading">Загрузка...</div>
                 </div>
+            </div>
+        </div>
 
-                <button class="btn btn-primary btn-fab" onclick="app.showCreatePost()">
-                    ➕ Создать запрос
-                </button>
+        <!-- Страница конкретного чата -->
+        <div id="page-chat-view" class="page">
+            <div class="container chat-container">
+                <div class="chat-header">
+                    <button class="btn-back" onclick="app.showPage('chat')">← Назад</button>
+                    <h2 id="chat-title">Чат</h2>
+                </div>
+                
+                <div id="chat-messages" class="chat-messages">
+                    <div class="loading">Загрузка...</div>
+                </div>
+                
+                <div id="chat-complete-section" class="chat-complete-section" style="display: none;">
+                    <button class="btn btn-success" onclick="app.completeChat()">✅ Выполнено</button>
+                </div>
+                
+                <div class="chat-input-container">
+                    <input type="text" id="chat-input" class="chat-input" placeholder="Введите сообщение..." onkeypress="if(event.key==='Enter') app.sendMessage()">
+                    <button class="btn btn-primary" onclick="app.sendMessage()">Отправить</button>
+                </div>
             </div>
         </div>
 
@@ -220,16 +233,15 @@
         </div>
     </div>
 
-    <!-- Модалка задания -->
-    <div id="modal-task" class="modal">
+    <!-- Модалка участия во взаимке -->
+    <div id="modal-join-mutual" class="modal">
         <div class="modal-content">
-            <h2 id="task-title">Задание</h2>
-            <div id="task-info"></div>
-            <div id="task-error" class="error-message"></div>
+            <h2 id="join-mutual-title">Участие во взаимке</h2>
+            <div id="join-mutual-info"></div>
+            <div id="join-mutual-error" class="error-message"></div>
             <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="app.closeModal()">Закрыть</button>
-                <a id="task-link" class="btn btn-primary" target="_blank">Перейти в Telegram</a>
-                <button class="btn btn-primary" onclick="app.checkTask()">Проверить выполнение</button>
+                <button class="btn btn-secondary" onclick="app.closeModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="app.startChatForMutual()">Начать чат</button>
             </div>
         </div>
     </div>

@@ -2,6 +2,7 @@ import pool from '../db/index.js';
 import { checkSubscription, notifyViolation } from '../bot.js';
 import { updateUserRating, updateMutualPairStatus } from '../db/queries.js';
 import { getChannel } from '../db/queries.js';
+import { expireOldChats } from '../db/chatQueries.js';
 
 // Периодическая проверка удержания подписок
 export const checkHoldPeriods = async () => {
@@ -92,6 +93,9 @@ export const startScheduler = () => {
   
   // Проверка активности каналов каждые 12 часов
   setInterval(checkChannelsActivity, 12 * 60 * 60 * 1000);
+  
+  // Удаление старых чатов каждые час
+  setInterval(expireOldChats, 60 * 60 * 1000);
 
   console.log('Scheduler started');
 };
