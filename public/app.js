@@ -1042,7 +1042,7 @@ app.createPost = async () => {
 
     try {
         const initData = tg.initData;
-        const response = await fetch(`${app.apiUrl}/chat/post`, {
+        const response = await fetch(`${app.apiUrl}/mutuals/create`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1050,8 +1050,9 @@ app.createPost = async () => {
             },
             body: JSON.stringify({
                 channelId: channelId,
-                postType: postType,
-                conditions: conditions,
+                mutualType: postType,
+                requiredCount: 1,
+                holdHours: 24,
                 userId: app.userId
             })
         });
@@ -1059,16 +1060,16 @@ app.createPost = async () => {
         const data = await response.json();
 
         if (response.ok) {
-            tg.showAlert('Запрос опубликован!');
+            tg.showAlert('Запрос создан!');
             app.closeModal();
-            app.loadChats();
+            app.loadMutuals();
         } else {
-            errorDiv.textContent = data.error || 'Ошибка при публикации';
+            errorDiv.textContent = data.error || 'Ошибка при создании запроса';
             errorDiv.classList.add('active');
         }
     } catch (error) {
         console.error('Create post error:', error);
-        errorDiv.textContent = 'Ошибка при публикации';
+        errorDiv.textContent = 'Ошибка при создании запроса';
         errorDiv.classList.add('active');
     }
 };
@@ -1228,4 +1229,3 @@ app.formatTime = (timestamp) => {
     const days = Math.floor(hours / 24);
     return `${days} дн назад`;
 };
-
