@@ -1,5 +1,26 @@
+// Проверка загрузки React
+if (typeof React === 'undefined' || typeof ReactDOM === 'undefined') {
+  document.body.innerHTML = '<div style="padding: 20px; font-family: sans-serif;"><h1>❌ Ошибка загрузки</h1><p>React библиотеки не загружены. Обновите страницу.</p></div>';
+  throw new Error('React не загружен');
+}
+
 const { useState, useEffect, useRef } = React;
-const root = ReactDOM.createRoot(document.getElementById('app'));
+const rootElement = document.getElementById('app');
+
+if (!rootElement) {
+  throw new Error('Element with id="app" not found');
+}
+
+const root = ReactDOM.createRoot(rootElement);
+
+// Global error handler
+window.addEventListener('error', (event) => {
+  console.error('Global error:', event.error);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled promise rejection:', event.reason);
+});
 
 // API helper
 const api = {
@@ -713,6 +734,7 @@ function App() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     initWebApp();
@@ -731,6 +753,7 @@ function App() {
       setUser(data.user);
     } catch (err) {
       console.error('Failed to initialize:', err);
+      setError(err.message || 'Ошибка инициализации');
     } finally {
       setLoading(false);
     }
@@ -740,6 +763,29 @@ function App() {
     return (
       <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div className="spinner"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="app-container" style={{ padding: '20px', textAlign: 'center', fontFamily: 'sans-serif' }}>
+        <h2 style={{ color: '#FF3B30' }}>❌ Ошибка инициализации</h2>
+        <p>{error}</p>
+        <button
+          onClick={() => location.reload()}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: '#2AABEE',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '16px'
+          }}
+        >
+          Обновить страницу
+        </button>
       </div>
     );
   }
