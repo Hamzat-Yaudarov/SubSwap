@@ -54,7 +54,7 @@ export const addChannel = async (channelData) => {
       `UPDATE channels 
        SET owner_id = $1, username = $2, title = $3, type = $4, members_count = $5, is_active = TRUE
        WHERE tg_id = $6`,
-      [ownerId, username, title, type, membersCount, tgId]
+      [ownerId, username || null, title, type, membersCount || 0, tgId]
     );
     return await getChannelByTgId(tgId);
   }
@@ -62,7 +62,7 @@ export const addChannel = async (channelData) => {
     `INSERT INTO channels (owner_id, tg_id, username, title, type, members_count)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [ownerId, tgId, username, title, type, membersCount]
+    [ownerId, tgId, username || null, title, type, membersCount || 0]
   );
   return result.rows[0];
 };

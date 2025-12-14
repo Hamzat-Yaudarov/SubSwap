@@ -133,21 +133,37 @@ router.post('/channels/add', verifyTelegramWebApp, async (req, res) => {
 
     // Парсим ссылку на канал
     let channelId;
-    let username;
+    let username = null;
     
     if (link.includes('t.me/')) {
       const match = link.match(/t\.me\/(.+)/);
       if (match) {
-        username = match[1].replace('@', '');
+        username = match[1].replace('@', '').split('/')[0]; // Берем только первую часть (до /)
         try {
           const chat = await bot.getChat(`@${username}`);
           channelId = chat.id;
         } catch (error) {
-          return res.status(400).json({ error: 'Канал не найден или недоступен' });
+          console.error('Error getting chat by username:', error);
+          return res.status(400).json({ error: 'Канал не найден или недоступен. Убедитесь, что бот добавлен в канал/чат.' });
         }
       }
+    } else if (link.startsWith('@')) {
+      // Если ссылка начинается с @
+      username = link.replace('@', '').split('/')[0];
+      try {
+        const chat = await bot.getChat(`@${username}`);
+        channelId = chat.id;
+      } catch (error) {
+        console.error('Error getting chat by username:', error);
+        return res.status(400).json({ error: 'Канал не найден или недоступен. Убедитесь, что бот добавлен в канал/чат.' });
+      }
     } else {
-      channelId = parseInt(link);
+      // Пытаемся распарсить как числовой ID
+      const parsed = parseInt(link);
+      if (isNaN(parsed)) {
+        return res.status(400).json({ error: 'Неверная ссылка на канал. Используйте формат: https://t.me/channelname или @channelname' });
+      }
+      channelId = parsed;
     }
 
     if (!channelId) {

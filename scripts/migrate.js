@@ -44,6 +44,17 @@ const createTables = async () => {
       )
     `);
 
+    // Добавляем колонку username, если её нет (для существующих таблиц)
+    try {
+      await client.query(`
+        ALTER TABLE channels 
+        ADD COLUMN IF NOT EXISTS username TEXT
+      `);
+    } catch (error) {
+      // Игнорируем ошибку, если колонка уже существует
+      console.log('Column username might already exist');
+    }
+
     // Таблица mutuals
     await client.query(`
       CREATE TABLE IF NOT EXISTS mutuals (

@@ -186,13 +186,17 @@ export const getChannelInfo = async (channelId) => {
     const chat = await bot.getChat(channelId);
     return {
       id: chat.id,
-      title: chat.title,
-      username: chat.username,
+      title: chat.title || chat.first_name || 'Без названия',
+      username: chat.username || null,
       type: chat.type,
       membersCount: chat.members_count || 0
     };
   } catch (error) {
     console.error('Error getting channel info:', error);
+    // Для чатов может быть ошибка, пробуем получить базовую информацию
+    if (error.response && error.response.error_code === 400) {
+      throw new Error('Канал или чат недоступен. Убедитесь, что бот добавлен в канал/чат и является администратором.');
+    }
     return null;
   }
 };
