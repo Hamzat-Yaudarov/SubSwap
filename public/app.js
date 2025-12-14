@@ -213,7 +213,7 @@ app.loadChannels = async () => {
                 list.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">📢</div>
-                        <div class="empty-state-text">Вы ещё не добавили ни одного канала</div>
+                        <div class="empty-state-text">Вы ещё не добавили ни одного канала!</div>
                     </div>
                 `;
             } else {
