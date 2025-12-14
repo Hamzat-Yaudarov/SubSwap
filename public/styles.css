@@ -133,6 +133,11 @@ body {
     font-size: 18px;
 }
 
+.create-request-btn {
+    margin-top: 16px;
+    margin-bottom: 16px;
+}
+
 .btn-fab {
     position: fixed;
     bottom: 100px;
@@ -682,4 +687,3 @@ body {
         height: calc(100vh - 60px);
     }
 }
-

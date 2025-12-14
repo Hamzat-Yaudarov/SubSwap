@@ -92,11 +92,15 @@
         <div id="page-mutuals" class="page">
             <div class="container">
                 <h1 class="page-title">Взаимки</h1>
-                
+
                 <div class="tabs">
                     <button class="tab active" data-type="subscribe">Подписки</button>
                     <button class="tab" data-type="reaction">Реакции</button>
                 </div>
+
+                <button class="btn btn-primary btn-large create-request-btn" onclick="app.showCreatePost()">
+                    ➕ Создать запрос
+                </button>
 
                 <div id="mutuals-list" class="mutuals-list">
                     <div class="loading">Загрузка...</div>
@@ -255,7 +259,6 @@
                 <div id="user-modal-username" class="user-modal-username"></div>
             </div>
             <div class="modal-actions">
-                <button class="btn btn-primary" onclick="app.openChatWithUser()">Написать в ЛС в MiniApp</button>
                 <button class="btn btn-outline" onclick="app.openTelegramChat()">Написать в ЛС в Telegram</button>
                 <button class="btn btn-secondary" onclick="app.closeModal()">Закрыть</button>
             </div>
@@ -265,4 +268,3 @@
     <script src="app.js"></script>
 </body>
 </html>
-

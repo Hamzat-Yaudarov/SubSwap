@@ -10,3 +10,4 @@ cmds = ["npm run migrate || true"]
 [start]
 cmd = "npm start"
 
+
