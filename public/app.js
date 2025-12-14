@@ -13,7 +13,9 @@ const app = {
     currentTask: null,
     currentMutual: null,
     currentChatId: null,
-    apiUrl: window.location.origin + '/api'
+    apiUrl: window.location.origin + '/api',
+    chatUpdateInterval: null,
+    lastMessageId: null
 };
 
 // Инициализация
@@ -88,6 +90,12 @@ app.setupNavigation = () => {
 };
 
 app.showPage = (pageName) => {
+    // Останавливаем автообновление чата если уходим со страницы чата
+    if (app.currentChatId && pageName !== 'chat-view') {
+        app.stopChatAutoUpdate();
+        app.currentChatId = null;
+    }
+    
     // Скрываем все страницы
     document.querySelectorAll('.page').forEach(page => {
         page.classList.remove('active');
@@ -670,6 +678,9 @@ app.showChatView = async (chatId) => {
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
     }, 100);
+    
+    // Запускаем автообновление чата
+    app.startChatAutoUpdate();
 };
 
 // Загрузить сообщения чата
@@ -691,6 +702,10 @@ app.loadChatMessages = async () => {
                 }
             });
         } else {
+            if (!app.currentChatId || isNaN(app.currentChatId)) {
+                throw new Error('Invalid chat ID');
+            }
+            
             response = await fetch(`${app.apiUrl}/chats/${app.currentChatId}/messages`, {
                 headers: {
                     'X-Telegram-Init-Data': initData,
@@ -700,7 +715,8 @@ app.loadChatMessages = async () => {
         }
 
         if (!response.ok) {
-            throw new Error('Failed to load messages');
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Failed to load messages');
         }
 
         const data = await response.json();
@@ -709,15 +725,34 @@ app.loadChatMessages = async () => {
         if (messages.length === 0) {
             messagesDiv.innerHTML = '<div class="empty-state">Нет сообщений</div>';
         } else {
+            const wasScrolledToBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop <= messagesDiv.clientHeight + 100;
+            
             messagesDiv.innerHTML = messages.map(msg => {
                 const isOwn = msg.user_telegram_id === app.userId;
+                const userInfo = msg.user_info || {};
+                const username = userInfo.username || userInfo.first_name || `User ${msg.user_telegram_id}`;
+                const displayName = userInfo.first_name || username;
+                
+                // Сохраняем последний ID сообщения для оптимизации обновлений
+                if (!app.lastMessageId || msg.id > app.lastMessageId) {
+                    app.lastMessageId = msg.id;
+                }
+                
                 return `
-                    <div class="message ${isOwn ? 'message-own' : 'message-other'}">
+                    <div class="message ${isOwn ? 'message-own' : 'message-other'}" data-message-id="${msg.id}">
+                        ${!isOwn ? `<div class="message-author">${displayName}</div>` : ''}
                         <div class="message-text">${msg.text}</div>
                         <div class="message-time">${app.formatTime(msg.created_at)}</div>
                     </div>
                 `;
             }).join('');
+            
+            // Прокручиваем вниз только если пользователь уже был внизу
+            if (wasScrolledToBottom) {
+                setTimeout(() => {
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                }, 50);
+            }
         }
         
         // Прокручиваем вниз
@@ -763,6 +798,11 @@ app.sendMessage = async () => {
                 })
             });
         } else {
+            if (!app.currentChatId || app.currentChatId === 'general' || isNaN(app.currentChatId)) {
+                tg.showAlert('Ошибка: неверный ID чата');
+                return;
+            }
+            
             response = await fetch(`${app.apiUrl}/chats/${app.currentChatId}/messages`, {
                 method: 'POST',
                 headers: {
@@ -777,9 +817,16 @@ app.sendMessage = async () => {
         }
 
         if (response.ok) {
+            const data = await response.json();
+            // Добавляем новое сообщение сразу в UI для мгновенной обратной связи
+            if (data.message) {
+                app.addMessageToUI(data.message);
+            }
+            // Затем обновляем все сообщения для синхронизации
             await app.loadChatMessages();
         } else {
-            tg.showAlert('Ошибка при отправке сообщения');
+            const errorData = await response.json().catch(() => ({}));
+            tg.showAlert(errorData.error || 'Ошибка при отправке сообщения');
         }
     } catch (error) {
         console.error('Send message error:', error);
@@ -817,6 +864,111 @@ app.completeChat = async () => {
         console.error('Complete chat error:', error);
         tg.showAlert('Ошибка');
     }
+};
+
+// Автообновление чата
+app.startChatAutoUpdate = () => {
+    // Останавливаем предыдущий интервал если есть
+    if (app.chatUpdateInterval) {
+        clearInterval(app.chatUpdateInterval);
+    }
+    
+    // Обновляем каждые 2 секунды
+    app.chatUpdateInterval = setInterval(async () => {
+        if (app.currentChatId && document.getElementById('page-chat-view')?.classList.contains('active')) {
+            await app.updateChatMessages();
+        }
+    }, 2000);
+};
+
+// Остановить автообновление
+app.stopChatAutoUpdate = () => {
+    if (app.chatUpdateInterval) {
+        clearInterval(app.chatUpdateInterval);
+        app.chatUpdateInterval = null;
+    }
+};
+
+// Оптимизированное обновление сообщений (только новые)
+app.updateChatMessages = async () => {
+    if (!app.currentChatId) return;
+    
+    try {
+        const initData = tg.initData || '';
+        let response;
+        
+        if (app.currentChatId === 'general') {
+            response = await fetch(`${app.apiUrl}/general-chat`, {
+                headers: {
+                    'X-Telegram-Init-Data': initData,
+                    'Content-Type': 'application/json'
+                }
+            });
+        } else {
+            response = await fetch(`${app.apiUrl}/chats/${app.currentChatId}/messages`, {
+                headers: {
+                    'X-Telegram-Init-Data': initData,
+                    'Content-Type': 'application/json'
+                }
+            });
+        }
+
+        if (response.ok) {
+            const data = await response.json();
+            const messages = data.messages || [];
+            
+            // Находим новые сообщения
+            const messagesDiv = document.getElementById('chat-messages');
+            if (!messagesDiv) return;
+            
+            const existingIds = new Set(
+                Array.from(messagesDiv.querySelectorAll('[data-message-id]'))
+                    .map(el => parseInt(el.dataset.messageId))
+            );
+            
+            const newMessages = messages.filter(msg => !existingIds.has(msg.id));
+            
+            // Добавляем только новые сообщения
+            if (newMessages.length > 0) {
+                const wasScrolledToBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop <= messagesDiv.clientHeight + 100;
+                
+                newMessages.forEach(msg => {
+                    app.addMessageToUI(msg);
+                });
+                
+                // Прокручиваем вниз только если пользователь был внизу
+                if (wasScrolledToBottom) {
+                    setTimeout(() => {
+                        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                    }, 50);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Update chat messages error:', error);
+    }
+};
+
+// Добавить сообщение в UI
+app.addMessageToUI = (msg) => {
+    const messagesDiv = document.getElementById('chat-messages');
+    if (!messagesDiv) return;
+    
+    const isOwn = msg.user_telegram_id === app.userId;
+    const userInfo = msg.user_info || {};
+    const username = userInfo.username || userInfo.first_name || `User ${msg.user_telegram_id}`;
+    const displayName = userInfo.first_name || username;
+    
+    const messageHTML = `
+        <div class="message ${isOwn ? 'message-own' : 'message-other'}" data-message-id="${msg.id}">
+            ${!isOwn ? `<div class="message-author">${displayName}</div>` : ''}
+            <div class="message-text">${msg.text}</div>
+            <div class="message-time">${app.formatTime(msg.created_at)}</div>
+        </div>
+    `;
+    
+    messagesDiv.insertAdjacentHTML('beforeend', messageHTML);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
 };
 
 // Старая функция loadChatPosts (удаляем или оставляем для совместимости)

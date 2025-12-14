@@ -522,6 +522,14 @@ body {
     align-items: flex-start;
 }
 
+.message-author {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--primary-color);
+    margin-bottom: 4px;
+    padding: 0 4px;
+}
+
 .message-text {
     background: white;
     padding: 10px 14px;

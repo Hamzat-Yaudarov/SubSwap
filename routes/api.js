@@ -583,15 +583,56 @@ router.get('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
   try {
     const userId = req.userId || req.query.userId;
     const chatId = parseInt(req.params.id);
+    
+    if (!chatId || isNaN(chatId)) {
+      return res.status(400).json({ error: 'Invalid chat ID', messages: [] });
+    }
+    
     const { getChat, getChatMessages } = await import('../db/chatQueries.js');
     
     const chat = await getChat(chatId);
-    if (!chat || (chat.user1_id !== userId && chat.user2_id !== userId)) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (!chat) {
+      return res.status(404).json({ error: 'Chat not found', messages: [] });
+    }
+    
+    if (chat.user1_id !== userId && chat.user2_id !== userId) {
+      return res.status(403).json({ error: 'Access denied', messages: [] });
     }
 
     const messages = await getChatMessages(chatId);
-    res.json({ messages });
+    
+    // Получаем информацию о пользователях из Telegram
+    const bot = (await import('../bot.js')).default;
+    const usersInfo = {};
+    const uniqueUserIds = [...new Set(messages.map(m => m.user_telegram_id))];
+    
+    // Получаем информацию о каждом уникальном пользователе
+    for (const uid of uniqueUserIds) {
+      try {
+        // Пробуем получить информацию через getChat (работает для пользователей, с которыми бот общался)
+        const userChat = await bot.getChat(uid);
+        usersInfo[uid] = {
+          username: userChat.username || null,
+          first_name: userChat.first_name || null,
+          last_name: userChat.last_name || null
+        };
+      } catch (err) {
+        // Если не удалось, оставляем пустую информацию
+        usersInfo[uid] = {
+          username: null,
+          first_name: null,
+          last_name: null
+        };
+      }
+    }
+    
+    // Добавляем информацию о пользователях к сообщениям
+    const messagesWithUsers = messages.map(msg => ({
+      ...msg,
+      user_info: usersInfo[msg.user_telegram_id] || {}
+    }));
+    
+    res.json({ messages: messagesWithUsers });
   } catch (error) {
     console.error('Get chat messages error:', error);
     res.status(500).json({ error: 'Internal server error', messages: [] });
@@ -604,6 +645,14 @@ router.post('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
     const chatId = parseInt(req.params.id);
     const { text } = req.body;
 
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    if (!chatId || isNaN(chatId)) {
+      return res.status(400).json({ error: 'Invalid chat ID' });
+    }
+
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Message text is required' });
     }
@@ -611,7 +660,11 @@ router.post('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
     const { getChat, addMessage } = await import('../db/chatQueries.js');
     const chat = await getChat(chatId);
     
-    if (!chat || (chat.user1_id !== userId && chat.user2_id !== userId)) {
+    if (!chat) {
+      return res.status(404).json({ error: 'Chat not found' });
+    }
+    
+    if (chat.user1_id !== userId && chat.user2_id !== userId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -620,10 +673,31 @@ router.post('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
     }
 
     const message = await addMessage(chatId, userId, text.trim());
-    res.json({ message });
+    
+    // Получаем информацию о пользователе из Telegram
+    const bot = (await import('../bot.js')).default;
+    let userInfo = {};
+    try {
+      const chatMember = await bot.getChat(userId);
+      userInfo = {
+        username: chatMember.username || null,
+        first_name: chatMember.first_name || null,
+        last_name: chatMember.last_name || null
+      };
+    } catch (err) {
+      console.error('Error getting user info:', err);
+    }
+    
+    res.json({ 
+      message: {
+        ...message,
+        user_telegram_id: userId,
+        user_info: userInfo
+      }
+    });
   } catch (error) {
     console.error('Send message error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 });
 
@@ -659,7 +733,37 @@ router.get('/general-chat', verifyTelegramWebApp, async (req, res) => {
   try {
     const { getGeneralChatMessages } = await import('../db/chatQueries.js');
     const messages = await getGeneralChatMessages(100);
-    res.json({ messages });
+    
+    // Получаем информацию о пользователях из Telegram
+    const bot = (await import('../bot.js')).default;
+    const usersInfo = {};
+    const uniqueUserIds = [...new Set(messages.map(m => m.user_telegram_id))];
+    
+    // Получаем информацию о каждом уникальном пользователе
+    for (const uid of uniqueUserIds) {
+      try {
+        const userChat = await bot.getChat(uid);
+        usersInfo[uid] = {
+          username: userChat.username || null,
+          first_name: userChat.first_name || null,
+          last_name: userChat.last_name || null
+        };
+      } catch (err) {
+        usersInfo[uid] = {
+          username: null,
+          first_name: null,
+          last_name: null
+        };
+      }
+    }
+    
+    // Добавляем информацию о пользователях к сообщениям
+    const messagesWithUsers = messages.map(msg => ({
+      ...msg,
+      user_info: usersInfo[msg.user_telegram_id] || {}
+    }));
+    
+    res.json({ messages: messagesWithUsers });
   } catch (error) {
     console.error('Get general chat error:', error);
     res.status(500).json({ error: 'Internal server error', messages: [] });
@@ -671,16 +775,41 @@ router.post('/general-chat', verifyTelegramWebApp, async (req, res) => {
     const userId = req.userId || req.body.userId;
     const { text } = req.body;
 
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Message text is required' });
     }
 
     const { addGeneralChatMessage } = await import('../db/chatQueries.js');
     const message = await addGeneralChatMessage(userId, text.trim());
-    res.json({ message });
+    
+    // Получаем информацию о пользователе из Telegram
+    const bot = (await import('../bot.js')).default;
+    let userInfo = {};
+    try {
+      const chatMember = await bot.getChat(userId);
+      userInfo = {
+        username: chatMember.username || null,
+        first_name: chatMember.first_name || null,
+        last_name: chatMember.last_name || null
+      };
+    } catch (err) {
+      console.error('Error getting user info:', err);
+    }
+    
+    res.json({ 
+      message: {
+        ...message,
+        user_telegram_id: userId,
+        user_info: userInfo
+      }
+    });
   } catch (error) {
     console.error('Send general chat message error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 });
 
