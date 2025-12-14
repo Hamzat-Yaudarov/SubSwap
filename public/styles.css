@@ -522,12 +522,45 @@ body {
     align-items: flex-start;
 }
 
+.message-user-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.message-user-info:hover {
+    background: rgba(42, 171, 238, 0.1);
+}
+
+.message-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.message-avatar-placeholder {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 14px;
+}
+
 .message-author {
     font-size: 12px;
     font-weight: 600;
     color: var(--primary-color);
-    margin-bottom: 4px;
-    padding: 0 4px;
 }
 
 .message-text {
@@ -602,6 +635,32 @@ body {
     display: flex;
     flex-direction: column;
     gap: 12px;
+}
+
+/* Модалка пользователя */
+.user-modal-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.user-modal-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin: 0 auto 12px;
+    display: block;
+}
+
+.user-modal-name {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.user-modal-username {
+    font-size: 14px;
+    color: var(--text-secondary);
 }
 
 /* Адаптивность */

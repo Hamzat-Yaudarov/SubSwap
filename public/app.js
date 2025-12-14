@@ -15,7 +15,10 @@ const app = {
     currentChatId: null,
     apiUrl: window.location.origin + '/api',
     chatUpdateInterval: null,
-    lastMessageId: null
+    lastMessageId: null,
+    selectedUserId: null,
+    selectedUserName: null,
+    selectedUserUsername: null
 };
 
 // Инициализация
@@ -716,7 +719,8 @@ app.loadChatMessages = async () => {
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || 'Failed to load messages');
+            console.error('Failed to load messages:', errorData);
+            throw new Error(errorData.error || `Failed to load messages (${response.status})`);
         }
 
         const data = await response.json();
@@ -738,9 +742,23 @@ app.loadChatMessages = async () => {
                     app.lastMessageId = msg.id;
                 }
                 
+                const photoUrl = userInfo.photo_url || '';
+                const avatarHTML = photoUrl 
+                    ? `<img src="${photoUrl}" class="message-avatar" alt="${displayName}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">`
+                    : '';
+                const placeholderHTML = !photoUrl 
+                    ? `<div class="message-avatar-placeholder">${displayName.charAt(0).toUpperCase()}</div>`
+                    : '';
+                
                 return `
                     <div class="message ${isOwn ? 'message-own' : 'message-other'}" data-message-id="${msg.id}">
-                        ${!isOwn ? `<div class="message-author">${displayName}</div>` : ''}
+                        ${!isOwn ? `
+                            <div class="message-user-info" onclick="app.showUserMenu(${msg.user_telegram_id}, '${displayName.replace(/'/g, "\\'")}', '${(userInfo.username || '').replace(/'/g, "\\'")}', '${(photoUrl || '').replace(/'/g, "\\'")}')">
+                                ${avatarHTML}
+                                ${placeholderHTML}
+                                <div class="message-author">${displayName}</div>
+                            </div>
+                        ` : ''}
                         <div class="message-text">${msg.text}</div>
                         <div class="message-time">${app.formatTime(msg.created_at)}</div>
                     </div>
@@ -873,12 +891,12 @@ app.startChatAutoUpdate = () => {
         clearInterval(app.chatUpdateInterval);
     }
     
-    // Обновляем каждые 2 секунды
+    // Обновляем каждые 1 секунду для более быстрого отклика
     app.chatUpdateInterval = setInterval(async () => {
         if (app.currentChatId && document.getElementById('page-chat-view')?.classList.contains('active')) {
             await app.updateChatMessages();
         }
-    }, 2000);
+    }, 1000);
 };
 
 // Остановить автообновление
@@ -958,10 +976,23 @@ app.addMessageToUI = (msg) => {
     const userInfo = msg.user_info || {};
     const username = userInfo.username || userInfo.first_name || `User ${msg.user_telegram_id}`;
     const displayName = userInfo.first_name || username;
+    const photoUrl = userInfo.photo_url || '';
+    const avatarHTML = photoUrl 
+        ? `<img src="${photoUrl}" class="message-avatar" alt="${displayName}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">`
+        : '';
+    const placeholderHTML = !photoUrl 
+        ? `<div class="message-avatar-placeholder">${displayName.charAt(0).toUpperCase()}</div>`
+        : '';
     
     const messageHTML = `
         <div class="message ${isOwn ? 'message-own' : 'message-other'}" data-message-id="${msg.id}">
-            ${!isOwn ? `<div class="message-author">${displayName}</div>` : ''}
+            ${!isOwn ? `
+                <div class="message-user-info" onclick="app.showUserMenu(${msg.user_telegram_id}, '${displayName.replace(/'/g, "\\'")}', '${(userInfo.username || '').replace(/'/g, "\\'")}', '${(photoUrl || '').replace(/'/g, "\\'")}')">
+                    ${avatarHTML}
+                    ${placeholderHTML}
+                    <div class="message-author">${displayName}</div>
+                </div>
+            ` : ''}
             <div class="message-text">${msg.text}</div>
             <div class="message-time">${app.formatTime(msg.created_at)}</div>
         </div>
@@ -1078,6 +1109,110 @@ app.closeModal = () => {
     document.querySelectorAll('.modal').forEach(modal => {
         modal.classList.remove('active');
     });
+};
+
+// Показать меню пользователя
+app.showUserMenu = (userId, displayName, username, photoUrl) => {
+    app.selectedUserId = userId;
+    app.selectedUserName = displayName;
+    app.selectedUserUsername = username;
+    
+    const avatarEl = document.getElementById('user-modal-avatar');
+    const nameEl = document.getElementById('user-modal-name');
+    const usernameEl = document.getElementById('user-modal-username');
+    
+    if (avatarEl) {
+        if (photoUrl) {
+            avatarEl.src = photoUrl;
+            avatarEl.style.display = 'block';
+        } else {
+            avatarEl.style.display = 'none';
+        }
+    }
+    
+    if (nameEl) {
+        nameEl.textContent = displayName;
+    }
+    
+    if (usernameEl) {
+        usernameEl.textContent = username ? `@${username}` : '';
+        usernameEl.style.display = username ? 'block' : 'none';
+    }
+    
+    document.getElementById('modal-overlay').classList.add('active');
+    document.getElementById('modal-user').classList.add('active');
+};
+
+// Открыть чат с пользователем в MiniApp
+app.openChatWithUser = async () => {
+    if (!app.selectedUserId) return;
+    
+    try {
+        // Ищем существующий чат или создаем новый
+        const initData = tg.initData || '';
+        const response = await fetch(`${app.apiUrl}/chats`, {
+            headers: {
+                'X-Telegram-Init-Data': initData,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            const chats = data.chats || [];
+            
+            // Ищем чат с этим пользователем
+            let chat = chats.find(c => 
+                (c.user1_id === app.selectedUserId && c.user2_id === app.userId) ||
+                (c.user1_id === app.userId && c.user2_id === app.selectedUserId)
+            );
+            
+            if (chat) {
+                app.closeModal();
+                app.showChatView(chat.id);
+            } else {
+                // Создаем новый чат (без mutual_id для обычного общения)
+                const createResponse = await fetch(`${app.apiUrl}/chats/create`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Telegram-Init-Data': initData
+                    },
+                    body: JSON.stringify({
+                        userId: app.userId,
+                        otherUserId: app.selectedUserId
+                    })
+                });
+                
+                if (createResponse.ok) {
+                    const chatData = await createResponse.json();
+                    app.closeModal();
+                    app.showChatView(chatData.chat.id);
+                } else {
+                    const errorData = await createResponse.json().catch(() => ({}));
+                    tg.showAlert(errorData.error || 'Ошибка при создании чата');
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Open chat error:', error);
+        tg.showAlert('Ошибка при открытии чата');
+    }
+};
+
+// Открыть чат в Telegram
+app.openTelegramChat = () => {
+    if (!app.selectedUserId) return;
+    
+    const username = app.selectedUserUsername;
+    if (username) {
+        window.open(`https://t.me/${username}`, '_blank');
+    } else {
+        // Если нет username, открываем через user ID (работает только если пользователь уже писал боту)
+        tg.openLink(`https://t.me/user${app.selectedUserId}`);
+    }
+    
+    app.closeModal();
 };
 
 // Форматирование времени

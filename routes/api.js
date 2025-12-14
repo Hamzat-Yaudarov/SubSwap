@@ -606,25 +606,64 @@ router.get('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
     const usersInfo = {};
     const uniqueUserIds = [...new Set(messages.map(m => m.user_telegram_id))];
     
-    // Получаем информацию о каждом уникальном пользователе
-    for (const uid of uniqueUserIds) {
+    // Получаем информацию о каждом уникальном пользователе (параллельно для скорости)
+    // Используем Promise.allSettled чтобы не прерывать выполнение при ошибках
+    const userInfoPromises = uniqueUserIds.map(async (uid) => {
       try {
         // Пробуем получить информацию через getChat (работает для пользователей, с которыми бот общался)
         const userChat = await bot.getChat(uid);
-        usersInfo[uid] = {
-          username: userChat.username || null,
-          first_name: userChat.first_name || null,
-          last_name: userChat.last_name || null
+        let photoUrl = null;
+        
+        // Пробуем получить фото профиля
+        try {
+          const userProfilePhotos = await bot.getUserProfilePhotos(uid, { limit: 1 });
+          if (userProfilePhotos.total_count > 0 && userProfilePhotos.photos[0]) {
+            const fileId = userProfilePhotos.photos[0][0].file_id;
+            const file = await bot.getFile(fileId);
+            photoUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
+          }
+        } catch (photoErr) {
+          // Если не удалось получить фото, продолжаем без него
+        }
+        
+        return {
+          uid,
+          info: {
+            username: userChat.username || null,
+            first_name: userChat.first_name || null,
+            last_name: userChat.last_name || null,
+            photo_url: photoUrl
+          }
         };
       } catch (err) {
-        // Если не удалось, оставляем пустую информацию
+        // Если не удалось, возвращаем пустую информацию
+        return {
+          uid,
+          info: {
+            username: null,
+            first_name: null,
+            last_name: null,
+            photo_url: null
+          }
+        };
+      }
+    });
+    
+    const results = await Promise.allSettled(userInfoPromises);
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        usersInfo[result.value.uid] = result.value.info;
+      } else {
+        // В случае ошибки используем пустую информацию
+        const uid = uniqueUserIds[results.indexOf(result)];
         usersInfo[uid] = {
           username: null,
           first_name: null,
-          last_name: null
+          last_name: null,
+          photo_url: null
         };
       }
-    }
+    });
     
     // Добавляем информацию о пользователях к сообщениям
     const messagesWithUsers = messages.map(msg => ({
@@ -679,13 +718,34 @@ router.post('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
     let userInfo = {};
     try {
       const chatMember = await bot.getChat(userId);
+      let photoUrl = null;
+      
+      try {
+        const userProfilePhotos = await bot.getUserProfilePhotos(userId, { limit: 1 });
+        if (userProfilePhotos.total_count > 0 && userProfilePhotos.photos[0]) {
+          const fileId = userProfilePhotos.photos[0][0].file_id;
+          const file = await bot.getFile(fileId);
+          photoUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
+        }
+      } catch (photoErr) {
+        // Игнорируем ошибки получения фото
+      }
+      
       userInfo = {
         username: chatMember.username || null,
         first_name: chatMember.first_name || null,
-        last_name: chatMember.last_name || null
+        last_name: chatMember.last_name || null,
+        photo_url: photoUrl
       };
     } catch (err) {
       console.error('Error getting user info:', err);
+      // Используем базовую информацию если не удалось получить
+      userInfo = {
+        username: null,
+        first_name: null,
+        last_name: null,
+        photo_url: null
+      };
     }
     
     res.json({ 
@@ -739,23 +799,40 @@ router.get('/general-chat', verifyTelegramWebApp, async (req, res) => {
     const usersInfo = {};
     const uniqueUserIds = [...new Set(messages.map(m => m.user_telegram_id))];
     
-    // Получаем информацию о каждом уникальном пользователе
-    for (const uid of uniqueUserIds) {
+    // Получаем информацию о каждом уникальном пользователе (параллельно для скорости)
+    await Promise.all(uniqueUserIds.map(async (uid) => {
       try {
         const userChat = await bot.getChat(uid);
+        let photoUrl = null;
+        
+        // Пробуем получить фото профиля
+        try {
+          const userProfilePhotos = await bot.getUserProfilePhotos(uid, { limit: 1 });
+          if (userProfilePhotos.total_count > 0 && userProfilePhotos.photos[0]) {
+            const fileId = userProfilePhotos.photos[0][0].file_id;
+            const file = await bot.getFile(fileId);
+            photoUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
+          }
+        } catch (photoErr) {
+          // Игнорируем ошибки получения фото
+        }
+        
         usersInfo[uid] = {
           username: userChat.username || null,
           first_name: userChat.first_name || null,
-          last_name: userChat.last_name || null
+          last_name: userChat.last_name || null,
+          photo_url: photoUrl
         };
       } catch (err) {
+        // Если не удалось получить информацию, используем базовые данные
         usersInfo[uid] = {
           username: null,
           first_name: null,
-          last_name: null
+          last_name: null,
+          photo_url: null
         };
       }
-    }
+    }));
     
     // Добавляем информацию о пользователях к сообщениям
     const messagesWithUsers = messages.map(msg => ({

@@ -246,6 +246,22 @@
         </div>
     </div>
 
+    <!-- Модалка пользователя -->
+    <div id="modal-user" class="modal">
+        <div class="modal-content">
+            <div class="user-modal-header">
+                <img id="user-modal-avatar" class="user-modal-avatar" src="" alt="Avatar" onerror="this.style.display='none'">
+                <div id="user-modal-name" class="user-modal-name"></div>
+                <div id="user-modal-username" class="user-modal-username"></div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="app.openChatWithUser()">Написать в ЛС в MiniApp</button>
+                <button class="btn btn-outline" onclick="app.openTelegramChat()">Написать в ЛС в Telegram</button>
+                <button class="btn btn-secondary" onclick="app.closeModal()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>
