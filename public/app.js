@@ -134,16 +134,7 @@ app.setupTabs = () => {
         });
     });
 
-    // Табы на странице чата
-    const chatTabs = document.querySelectorAll('#page-chat .tab');
-    chatTabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            chatTabs.forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            app.currentChatType = tab.dataset.type;
-            app.loadChatPosts();
-        });
-    });
+    // Табы на странице чата больше не нужны - убрали
 };
 
 // Загрузка профиля
@@ -389,18 +380,35 @@ app.joinMutual = async (mutualId) => {
 
 // Показать модалку участия
 app.showJoinMutualModal = () => {
-    if (!app.currentMutual) return;
+    if (!app.currentMutual) {
+        console.error('No currentMutual to show modal');
+        return;
+    }
     
-    document.getElementById('join-mutual-title').textContent = 'Участие во взаимке';
-    document.getElementById('join-mutual-info').innerHTML = `
+    console.log('Showing join mutual modal for:', app.currentMutual);
+    
+    const titleEl = document.getElementById('join-mutual-title');
+    const infoEl = document.getElementById('join-mutual-info');
+    const errorEl = document.getElementById('join-mutual-error');
+    const overlayEl = document.getElementById('modal-overlay');
+    const modalEl = document.getElementById('modal-join-mutual');
+    
+    if (!titleEl || !infoEl || !errorEl || !overlayEl || !modalEl) {
+        console.error('Modal elements not found');
+        tg.showAlert('Ошибка: элементы модалки не найдены');
+        return;
+    }
+    
+    titleEl.textContent = 'Участие во взаимке';
+    infoEl.innerHTML = `
         <p><strong>Канал:</strong> ${app.currentMutual.channel?.title || 'Неизвестный'}</p>
         <p><strong>Тип:</strong> ${app.currentMutual.mutual_type === 'subscribe' ? 'Подписка' : 'Реакция'}</p>
         <p>Нажмите "Начать чат" чтобы начать общение с создателем взаимки.</p>
     `;
-    document.getElementById('join-mutual-error').classList.remove('active');
+    errorEl.classList.remove('active');
     
-    document.getElementById('modal-overlay').classList.add('active');
-    document.getElementById('modal-join-mutual').classList.add('active');
+    overlayEl.classList.add('active');
+    modalEl.classList.add('active');
 };
 
 // Начать чат для взаимки
@@ -521,12 +529,16 @@ app.checkTask = async () => {
 // Загрузка чатов
 app.loadChats = async () => {
     const list = document.getElementById('chats-list');
-    if (!list) return;
+    if (!list) {
+        console.error('chats-list element not found');
+        return;
+    }
     
     list.innerHTML = '<div class="loading">Загрузка...</div>';
 
     try {
         const initData = tg.initData || '';
+        console.log('Loading chats, userId:', app.userId);
         const response = await fetch(`${app.apiUrl}/chats`, {
             headers: {
                 'X-Telegram-Init-Data': initData,
@@ -536,10 +548,12 @@ app.loadChats = async () => {
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
+            console.error('Failed to load chats:', errorData);
             throw new Error(errorData.error || `HTTP ${response.status}`);
         }
 
         const data = await response.json();
+        console.log('Chats data:', data);
         const chats = data.chats || [];
 
         // Добавляем общий чат в начало
@@ -551,7 +565,9 @@ app.loadChats = async () => {
             user2_id: null
         };
 
-        if (chats.length === 0 && !generalChat) {
+        const allChats = [generalChat, ...chats];
+        
+        if (allChats.length === 0) {
             list.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">💬</div>
@@ -559,7 +575,7 @@ app.loadChats = async () => {
                 </div>
             `;
         } else {
-            list.innerHTML = [generalChat, ...chats].map(chat => {
+            list.innerHTML = allChats.map(chat => {
                 if (chat.is_general) {
                     return `
                         <div class="chat-card" onclick="app.showGeneralChat()">
@@ -573,7 +589,6 @@ app.loadChats = async () => {
                         </div>
                     `;
                 } else {
-                    const otherUserId = chat.user1_id === app.userId ? chat.user2_id : chat.user1_id;
                     const channelTitle = chat.channel_title || 'Взаимка';
                     return `
                         <div class="chat-card" onclick="app.showChatView(${chat.id})">
@@ -809,73 +824,6 @@ app.loadChatPosts = async () => {
     // Больше не используется, перенаправляем на loadChats
     await app.loadChats();
 };
-    const list = document.getElementById('chat-list');
-    if (!list) return;
-    
-    list.innerHTML = '<div class="loading">Загрузка...</div>';
-
-    try {
-        const initData = tg.initData || '';
-        const type = app.currentChatType === 'channel' ? 'channel' : 
-                     app.currentChatType === 'chat' ? 'chat' : 'reaction';
-        
-        const response = await fetch(`${app.apiUrl}/chat/list?type=${type}`, {
-            headers: {
-                'X-Telegram-Init-Data': initData,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (!data.posts || data.posts.length === 0) {
-            list.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">💬</div>
-                    <div class="empty-state-text">Нет сообщений</div>
-                </div>
-            `;
-        } else {
-            list.innerHTML = data.posts.map(post => `
-                <div class="chat-post-card">
-                    <div class="post-header">
-                        <div class="post-avatar">${post.post_type === 'channel' ? '📢' : post.post_type === 'chat' ? '💬' : '👍'}</div>
-                        <div class="post-info">
-                            <div class="post-name">${post.channel?.title || 'Канал'}</div>
-                            <div class="post-meta">
-                                ${post.post_type === 'channel' ? 'Взаимная подписка' : 
-                                  post.post_type === 'chat' ? 'Взаимная подписка на чат' : 
-                                  'Обмен реакциями'} • 
-                                ${post.conditions || 'без ограничений'} • 
-                                Рейтинг: ${post.user_rating || 100} • 
-                                ${app.formatTime(post.created_at)}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="channel-actions">
-                        <button class="btn btn-primary" onclick="app.respondToPost(${post.id})">
-                            Откликнуться
-                        </button>
-                    </div>
-                </div>
-            `).join('');
-        }
-    } catch (error) {
-        console.error('Load chat posts error:', error);
-        list.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-state-icon">⚠️</div>
-                <div class="empty-state-text">Ошибка загрузки сообщений</div>
-                <div style="margin-top: 10px; font-size: 12px; color: #757575;">${error.message}</div>
-            </div>
-        `;
-    }
-};
 
 // Показать модалку создания поста
 app.showCreatePost = () => {
@@ -930,7 +878,7 @@ app.createPost = async () => {
         if (response.ok) {
             tg.showAlert('Запрос опубликован!');
             app.closeModal();
-            app.loadChatPosts();
+            app.loadChats();
         } else {
             errorDiv.textContent = data.error || 'Ошибка при публикации';
             errorDiv.classList.add('active');
@@ -962,7 +910,7 @@ app.respondToPost = async (postId) => {
 
         if (response.ok) {
             tg.showAlert('✅ Взаимка создана! Проверьте уведомления.');
-            app.loadChatPosts();
+            app.loadChats();
         } else {
             tg.showAlert(data.error || 'Ошибка при отклике');
         }
