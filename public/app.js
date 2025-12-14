@@ -26,35 +26,51 @@ app.init = async () => {
     try {
         // Получаем initData от Telegram
         const initData = tg.initData;
+        console.log('Initializing app, initData:', initData ? 'present' : 'missing');
         
         // Авторизация
         const response = await fetch(`${app.apiUrl}/auth`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Telegram-Init-Data': initData
+                'X-Telegram-Init-Data': initData || ''
             },
             body: JSON.stringify({
-                initData: initData
+                initData: initData || '',
+                userId: tg.initDataUnsafe?.user?.id
             })
         });
 
         if (!response.ok) {
-            throw new Error('Auth failed');
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Auth failed:', errorData);
+            // Пробуем использовать userId из initDataUnsafe
+            if (tg.initDataUnsafe?.user?.id) {
+                app.userId = tg.initDataUnsafe.user.id;
+                console.log('Using userId from initDataUnsafe:', app.userId);
+            } else {
+                throw new Error(errorData.error || 'Auth failed');
+            }
+        } else {
+            const data = await response.json();
+            app.userId = data.user.id;
+            app.user = data.user;
+            console.log('Auth successful, userId:', app.userId);
         }
 
-        const data = await response.json();
-        app.userId = data.user.id;
-        app.user = data.user;
-
-        // Загружаем данные
-        await app.loadProfile();
-        await app.loadChannels();
-        await app.loadMutuals();
-        await app.loadChatPosts();
+        // Загружаем данные только если есть userId
+        if (app.userId) {
+            await app.loadProfile();
+            await app.loadChannels();
+            await app.loadMutuals();
+            await app.loadChatPosts();
+        } else {
+            console.error('No userId available');
+            tg.showAlert('Ошибка авторизации. Перезапустите приложение.');
+        }
     } catch (error) {
         console.error('Init error:', error);
-        tg.showAlert('Ошибка инициализации. Попробуйте перезапустить приложение.');
+        tg.showAlert('Ошибка инициализации: ' + error.message);
     }
 };
 
@@ -277,53 +293,65 @@ app.addChannel = async () => {
 // Загрузка взаимок
 app.loadMutuals = async () => {
     const list = document.getElementById('mutuals-list');
+    if (!list) return;
+    
     list.innerHTML = '<div class="loading">Загрузка...</div>';
 
     try {
-        const initData = tg.initData;
+        const initData = tg.initData || '';
         const response = await fetch(`${app.apiUrl}/mutuals/list?type=${app.currentMutualType}`, {
             headers: {
-                'X-Telegram-Init-Data': initData
+                'X-Telegram-Init-Data': initData,
+                'Content-Type': 'application/json'
             }
         });
 
-        if (response.ok) {
-            const data = await response.json();
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
 
-            if (data.mutuals.length === 0) {
-                list.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🤝</div>
-                        <div class="empty-state-text">Нет доступных взаимок</div>
-                    </div>
-                `;
-            } else {
-                list.innerHTML = data.mutuals.map(mutual => `
-                    <div class="mutual-card">
-                        <div class="channel-header">
-                            <div class="channel-avatar">${mutual.mutual_type === 'subscribe' ? '📢' : '👍'}</div>
-                            <div class="channel-info">
-                                <div class="channel-name">${mutual.channel?.title || 'Канал'}</div>
-                                <div class="channel-meta">
-                                    ${mutual.mutual_type === 'subscribe' ? 'Подписка' : 'Реакция'} • 
-                                    Требуется: ${mutual.required_count} • 
-                                    Удержание: ${mutual.hold_hours}ч • 
-                                    Рейтинг партнёра: ${mutual.creator_rating}
-                                </div>
+        const data = await response.json();
+
+        if (!data.mutuals || data.mutuals.length === 0) {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">🤝</div>
+                    <div class="empty-state-text">Нет доступных взаимок</div>
+                </div>
+            `;
+        } else {
+            list.innerHTML = data.mutuals.map(mutual => `
+                <div class="mutual-card">
+                    <div class="channel-header">
+                        <div class="channel-avatar">${mutual.mutual_type === 'subscribe' ? '📢' : '👍'}</div>
+                        <div class="channel-info">
+                            <div class="channel-name">${mutual.channel?.title || 'Канал'}</div>
+                            <div class="channel-meta">
+                                ${mutual.mutual_type === 'subscribe' ? 'Подписка' : 'Реакция'} • 
+                                Требуется: ${mutual.required_count} • 
+                                Удержание: ${mutual.hold_hours}ч • 
+                                Рейтинг партнёра: ${mutual.creator_rating || 100}
                             </div>
                         </div>
-                        <div class="channel-actions">
-                            <button class="btn btn-primary" onclick="app.joinMutual(${mutual.id})">
-                                Участвовать
-                            </button>
-                        </div>
                     </div>
-                `).join('');
-            }
+                    <div class="channel-actions">
+                        <button class="btn btn-primary" onclick="app.joinMutual(${mutual.id})">
+                            Участвовать
+                        </button>
+                    </div>
+                </div>
+            `).join('');
         }
     } catch (error) {
         console.error('Load mutuals error:', error);
-        list.innerHTML = '<div class="error-message active">Ошибка загрузки взаимок</div>';
+        list.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">⚠️</div>
+                <div class="empty-state-text">Ошибка загрузки взаимок</div>
+                <div style="margin-top: 10px; font-size: 12px; color: #757575;">${error.message}</div>
+            </div>
+        `;
     }
 };
 
@@ -437,58 +465,70 @@ app.checkTask = async () => {
 // Загрузка постов чата
 app.loadChatPosts = async () => {
     const list = document.getElementById('chat-list');
+    if (!list) return;
+    
     list.innerHTML = '<div class="loading">Загрузка...</div>';
 
     try {
-        const initData = tg.initData;
+        const initData = tg.initData || '';
         const type = app.currentChatType === 'channel' ? 'channel' : 
                      app.currentChatType === 'chat' ? 'chat' : 'reaction';
         
         const response = await fetch(`${app.apiUrl}/chat/list?type=${type}`, {
             headers: {
-                'X-Telegram-Init-Data': initData
+                'X-Telegram-Init-Data': initData,
+                'Content-Type': 'application/json'
             }
         });
 
-        if (response.ok) {
-            const data = await response.json();
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
 
-            if (data.posts.length === 0) {
-                list.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">💬</div>
-                        <div class="empty-state-text">Нет сообщений</div>
-                    </div>
-                `;
-            } else {
-                list.innerHTML = data.posts.map(post => `
-                    <div class="chat-post-card">
-                        <div class="post-header">
-                            <div class="post-avatar">${post.post_type === 'channel' ? '📢' : post.post_type === 'chat' ? '💬' : '👍'}</div>
-                            <div class="post-info">
-                                <div class="post-name">${post.channel?.title || 'Канал'}</div>
-                                <div class="post-meta">
-                                    ${post.post_type === 'channel' ? 'Взаимная подписка' : 
-                                      post.post_type === 'chat' ? 'Взаимная подписка на чат' : 
-                                      'Обмен реакциями'} • 
-                                    ${post.conditions} • 
-                                    Рейтинг: ${post.user_rating} • 
-                                    ${app.formatTime(post.created_at)}
-                                </div>
+        const data = await response.json();
+
+        if (!data.posts || data.posts.length === 0) {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">💬</div>
+                    <div class="empty-state-text">Нет сообщений</div>
+                </div>
+            `;
+        } else {
+            list.innerHTML = data.posts.map(post => `
+                <div class="chat-post-card">
+                    <div class="post-header">
+                        <div class="post-avatar">${post.post_type === 'channel' ? '📢' : post.post_type === 'chat' ? '💬' : '👍'}</div>
+                        <div class="post-info">
+                            <div class="post-name">${post.channel?.title || 'Канал'}</div>
+                            <div class="post-meta">
+                                ${post.post_type === 'channel' ? 'Взаимная подписка' : 
+                                  post.post_type === 'chat' ? 'Взаимная подписка на чат' : 
+                                  'Обмен реакциями'} • 
+                                ${post.conditions || 'без ограничений'} • 
+                                Рейтинг: ${post.user_rating || 100} • 
+                                ${app.formatTime(post.created_at)}
                             </div>
                         </div>
-                        <div class="channel-actions">
-                            <button class="btn btn-primary" onclick="app.respondToPost(${post.id})">
-                                Откликнуться
-                            </button>
-                        </div>
                     </div>
-                `).join('');
-            }
+                    <div class="channel-actions">
+                        <button class="btn btn-primary" onclick="app.respondToPost(${post.id})">
+                            Откликнуться
+                        </button>
+                    </div>
+                </div>
+            `).join('');
         }
     } catch (error) {
         console.error('Load chat posts error:', error);
-        list.innerHTML = '<div class="error-message active">Ошибка загрузки сообщений</div>';
+        list.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">⚠️</div>
+                <div class="empty-state-text">Ошибка загрузки сообщений</div>
+                <div style="margin-top: 10px; font-size: 12px; color: #757575;">${error.message}</div>
+            </div>
+        `;
     }
 };
 

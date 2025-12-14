@@ -36,22 +36,37 @@ const verifyTelegramWebApp = (req, res, next) => {
   // В production нужно проверять initData от Telegram
   // Для MVP упрощаем и проверяем только наличие userId
   const initData = req.headers['x-telegram-init-data'] || req.body.initData;
-  if (!initData) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
   
   // Парсим initData (упрощённая версия)
   // В production используйте crypto для проверки подписи
   try {
-    const params = new URLSearchParams(initData);
-    const userStr = params.get('user');
-    if (userStr) {
-      const user = JSON.parse(decodeURIComponent(userStr));
-      req.userId = user.id;
-      req.user = user;
+    if (initData) {
+      const params = new URLSearchParams(initData);
+      const userStr = params.get('user');
+      if (userStr) {
+        const user = JSON.parse(decodeURIComponent(userStr));
+        req.userId = user.id;
+        req.user = user;
+      }
+    }
+    
+    // Если userId не установлен из initData, пробуем получить из query/body
+    if (!req.userId) {
+      req.userId = req.query.userId || req.body.userId;
+    }
+    
+    // Для некоторых endpoints userId не обязателен (например, список взаимок)
+    // Но лучше иметь его для логирования
+    if (!req.userId) {
+      console.warn('No userId found in request', { 
+        hasInitData: !!initData,
+        query: req.query,
+        body: req.body 
+      });
     }
   } catch (error) {
     console.error('Error parsing initData:', error);
+    // Не блокируем запрос, просто логируем ошибку
   }
   
   next();
@@ -61,6 +76,8 @@ const verifyTelegramWebApp = (req, res, next) => {
 router.post('/auth', verifyTelegramWebApp, async (req, res) => {
   try {
     const userId = req.userId || req.body.userId;
+    console.log('Auth request:', { userId, hasInitData: !!req.headers['x-telegram-init-data'] });
+    
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
     }
@@ -73,7 +90,7 @@ router.post('/auth', verifyTelegramWebApp, async (req, res) => {
     res.json({ user });
   } catch (error) {
     console.error('Auth error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 });
 
@@ -243,20 +260,29 @@ router.get('/mutuals/list', verifyTelegramWebApp, async (req, res) => {
     // Добавляем информацию о каналах
     const mutualsWithChannels = await Promise.all(
       mutuals.map(async (mutual) => {
-        const channel = await getChannel(mutual.channel_id);
-        const creator = await getUser(mutual.creator_id);
-        return {
-          ...mutual,
-          channel: channel,
-          creator_rating: creator?.rating || 100
-        };
+        try {
+          const channel = await getChannel(mutual.channel_id);
+          const creator = await getUser(mutual.creator_id);
+          return {
+            ...mutual,
+            channel: channel || { title: 'Неизвестный канал', tg_id: mutual.channel_id },
+            creator_rating: creator?.rating || 100
+          };
+        } catch (err) {
+          console.error('Error processing mutual:', err);
+          return {
+            ...mutual,
+            channel: { title: 'Ошибка загрузки', tg_id: mutual.channel_id },
+            creator_rating: 100
+          };
+        }
       })
     );
 
-    res.json({ mutuals: mutualsWithChannels });
+    res.json({ mutuals: mutualsWithChannels || [] });
   } catch (error) {
     console.error('List mutuals error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', mutuals: [] });
   }
 });
 
@@ -395,21 +421,30 @@ router.get('/chat/list', verifyTelegramWebApp, async (req, res) => {
     
     // Добавляем информацию о каналах и пользователях
     const postsWithDetails = await Promise.all(
-      posts.map(async (post) => {
-        const channel = await getChannel(post.channel_id);
-        const user = await getUser(post.user_id);
-        return {
-          ...post,
-          channel: channel,
-          user_rating: user?.rating || 100
-        };
+      (posts || []).map(async (post) => {
+        try {
+          const channel = await getChannel(post.channel_id);
+          const user = await getUser(post.user_id);
+          return {
+            ...post,
+            channel: channel || { title: 'Неизвестный канал', tg_id: post.channel_id },
+            user_rating: user?.rating || 100
+          };
+        } catch (err) {
+          console.error('Error processing chat post:', err);
+          return {
+            ...post,
+            channel: { title: 'Ошибка загрузки', tg_id: post.channel_id },
+            user_rating: 100
+          };
+        }
       })
     );
 
-    res.json({ posts: postsWithDetails });
+    res.json({ posts: postsWithDetails || [] });
   } catch (error) {
     console.error('List chat posts error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', posts: [] });
   }
 });
 
