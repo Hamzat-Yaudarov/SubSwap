@@ -226,10 +226,15 @@ router.post('/channels/add', verifyTelegramWebApp, async (req, res) => {
 router.post('/mutuals/create', verifyTelegramWebApp, async (req, res) => {
   try {
     const userId = req.userId || req.body.userId;
-    const { channelId, mutualType, requiredCount, holdHours } = req.body;
+    let { channelId, mutualType, requiredCount, holdHours } = req.body;
 
     if (!channelId || !mutualType) {
       return res.status(400).json({ error: 'Channel ID and mutual type are required' });
+    }
+
+    // Преобразуем типы подписок в правильный формат для БД
+    if (mutualType === 'channel' || mutualType === 'chat') {
+      mutualType = 'subscribe';
     }
 
     const user = await getUser(userId);
@@ -891,4 +896,3 @@ router.post('/general-chat', verifyTelegramWebApp, async (req, res) => {
 });
 
 export default router;
-
