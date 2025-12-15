@@ -2,14 +2,18 @@ import pool from './index.js';
 
 // Chats
 export const createChat = async (user1Id, user2Id, mutualId = null) => {
+  // Сначала проверяем, существует ли уже чат между этими пользователями
+  const existingChat = await getChatByUsers(user1Id, user2Id, mutualId);
+  if (existingChat) {
+    return existingChat;
+  }
+
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 часа
   const result = await pool.query(
     `INSERT INTO chats (user1_id, user2_id, mutual_id, expires_at)
      VALUES ($1, $2, $3, $4)
-     ON CONFLICT (user1_id, user2_id, mutual_id) DO UPDATE
-     SET status = 'active', expires_at = $4
      RETURNING *`,
-    [user1Id, user2Id, mutualId, expiresAt]
+    [BigInt(user1Id), BigInt(user2Id), mutualId, expiresAt]
   );
   return result.rows[0];
 };
@@ -21,7 +25,7 @@ export const getChat = async (chatId) => {
 
 export const getUserChats = async (userId) => {
   const result = await pool.query(
-    `SELECT c.*, 
+    `SELECT c.*,
             u1.id as user1_telegram_id,
             u2.id as user2_telegram_id,
             m.id as mutual_id,
@@ -36,25 +40,25 @@ export const getUserChats = async (userId) => {
      AND c.status = 'active'
      AND c.expires_at > NOW()
      ORDER BY c.created_at DESC`,
-    [userId]
+    [BigInt(userId)]
   );
   return result.rows;
 };
 
 export const getChatByUsers = async (user1Id, user2Id, mutualId = null) => {
-  let query = `SELECT * FROM chats 
+  let query = `SELECT * FROM chats
                WHERE ((user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1))`;
-  let params = [user1Id, user2Id];
-  
+  let params = [BigInt(user1Id), BigInt(user2Id)];
+
   if (mutualId) {
     query += ' AND mutual_id = $3';
     params.push(mutualId);
   } else {
     query += ' AND mutual_id IS NULL';
   }
-  
+
   query += ' AND status = \'active\' AND expires_at > NOW()';
-  
+
   const result = await pool.query(query, params);
   return result.rows[0];
 };
@@ -62,19 +66,20 @@ export const getChatByUsers = async (user1Id, user2Id, mutualId = null) => {
 export const markChatCompleted = async (chatId, userId) => {
   const chat = await getChat(chatId);
   if (!chat) return null;
-  
-  if (chat.user1_id === userId) {
+
+  const userIdBig = BigInt(userId);
+  if (chat.user1_id === userIdBig) {
     await pool.query('UPDATE chats SET user1_completed = TRUE WHERE id = $1', [chatId]);
-  } else if (chat.user2_id === userId) {
+  } else if (chat.user2_id === userIdBig) {
     await pool.query('UPDATE chats SET user2_completed = TRUE WHERE id = $1', [chatId]);
   }
-  
+
   // Проверяем, оба ли выполнили
   const updated = await getChat(chatId);
   if (updated.user1_completed && updated.user2_completed) {
     await pool.query('UPDATE chats SET status = \'completed\' WHERE id = $1', [chatId]);
   }
-  
+
   return updated;
 };
 
@@ -92,7 +97,7 @@ export const addMessage = async (chatId, userId, text) => {
     `INSERT INTO messages (chat_id, user_id, text)
      VALUES ($1, $2, $3)
      RETURNING *`,
-    [chatId, userId, text]
+    [parseInt(chatId), BigInt(userId), text]
   );
   return result.rows[0];
 };
@@ -116,7 +121,7 @@ export const addGeneralChatMessage = async (userId, text) => {
     `INSERT INTO general_chat_messages (user_id, text)
      VALUES ($1, $2)
      RETURNING *`,
-    [userId, text]
+    [BigInt(userId), text]
   );
   return result.rows[0];
 };
@@ -132,4 +137,3 @@ export const getGeneralChatMessages = async (limit = 100) => {
   );
   return result.rows.reverse(); // Возвращаем в хронологическом порядке
 };
-

@@ -584,6 +584,29 @@ router.get('/chats', verifyTelegramWebApp, async (req, res) => {
   }
 });
 
+router.post('/chats/create', verifyTelegramWebApp, async (req, res) => {
+  try {
+    const userId = req.userId || req.body.userId;
+    const { otherUserId } = req.body;
+
+    if (!userId || !otherUserId) {
+      return res.status(400).json({ error: 'User IDs are required' });
+    }
+
+    if (userId === otherUserId) {
+      return res.status(400).json({ error: 'Cannot create chat with yourself' });
+    }
+
+    const { createChat, getChat } = await import('../db/chatQueries.js');
+    const chat = await createChat(userId, otherUserId);
+
+    res.json({ success: true, chat });
+  } catch (error) {
+    console.error('Create chat error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
   try {
     const userId = req.userId || req.query.userId;
@@ -594,13 +617,14 @@ router.get('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
     }
     
     const { getChat, getChatMessages } = await import('../db/chatQueries.js');
-    
+
     const chat = await getChat(chatId);
     if (!chat) {
       return res.status(404).json({ error: 'Chat not found', messages: [] });
     }
-    
-    if (chat.user1_id !== userId && chat.user2_id !== userId) {
+
+    const userIdBig = BigInt(userId);
+    if (chat.user1_id !== userIdBig && chat.user2_id !== userIdBig) {
       return res.status(403).json({ error: 'Access denied', messages: [] });
     }
 
@@ -703,16 +727,20 @@ router.post('/chats/:id/messages', verifyTelegramWebApp, async (req, res) => {
 
     const { getChat, addMessage } = await import('../db/chatQueries.js');
     const chat = await getChat(chatId);
-    
+
     if (!chat) {
+      console.error('Chat not found:', { chatId, userId });
       return res.status(404).json({ error: 'Chat not found' });
     }
-    
-    if (chat.user1_id !== userId && chat.user2_id !== userId) {
+
+    const userIdBig = BigInt(userId);
+    if (chat.user1_id !== userIdBig && chat.user2_id !== userIdBig) {
+      console.error('Access denied:', { chatId, userId, user1_id: chat.user1_id, user2_id: chat.user2_id });
       return res.status(403).json({ error: 'Access denied' });
     }
 
     if (chat.status !== 'active') {
+      console.error('Chat not active:', { chatId, status: chat.status });
       return res.status(400).json({ error: 'Chat is not active' });
     }
 
@@ -772,9 +800,10 @@ router.post('/chats/:id/complete', verifyTelegramWebApp, async (req, res) => {
     const chatId = parseInt(req.params.id);
     const { markChatCompleted, getChat } = await import('../db/chatQueries.js');
     const { updateUserRating } = await import('../db/queries.js');
-    
+
     const chat = await getChat(chatId);
-    if (!chat || (chat.user1_id !== userId && chat.user2_id !== userId)) {
+    const userIdBig = BigInt(userId);
+    if (!chat || (chat.user1_id !== userIdBig && chat.user2_id !== userIdBig)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
